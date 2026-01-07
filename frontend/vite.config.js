@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 9087, // 원하는 포트로 변경하세요 (Change to desired port)
+    port: 9087, // Dev server port
+  },
+  preview: {
+    port: 9087, // Preview server port
   },
 })

@@ -200,7 +200,7 @@ function App() {
   const connectToSSE = (authToken, myId) => {
     if (eventSourceRef.current) eventSourceRef.current.close()
 
-    const es = new EventSource(`http://localhost:8080/sse/subscribe?token=${authToken}`)
+    const es = new EventSource(`${import.meta.env.VITE_API_URL}/sse/subscribe?token=${authToken}`)
 
     es.addEventListener('connect', (e) => {
       addDebugLog('SSE IN (connect)', e.data)
@@ -232,7 +232,7 @@ function App() {
     if (!userId || !password) return
 
     try {
-      const res = await fetch('http://localhost:8080/auth/login', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, password })
@@ -412,7 +412,7 @@ function App() {
     const payload = { sender: userId, target, type, data }
     addDebugLog('SSE OUT', JSON.stringify(payload))
     try {
-      await fetch('http://localhost:8080/sse/signal', {
+      await fetch(`${import.meta.env.VITE_API_URL}/sse/signal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -536,7 +536,7 @@ function App() {
   const handleLogout = () => {
     // 0. Notify server (optional but good for cleanup)
     if (tokenRef.current) {
-      fetch('http://localhost:8080/sse/logout', {
+      fetch(`${import.meta.env.VITE_API_URL}/sse/logout`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${tokenRef.current}`

@@ -1,3 +1,5 @@
+server:
+  port: 9088
 spring:
   config:
     import: "classpath:secret.yml"

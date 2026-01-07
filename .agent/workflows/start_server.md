@@ -1,0 +1,3 @@
+
+# Start Server
+./gradlew bootRun

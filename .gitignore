@@ -1,0 +1,38 @@
+# Java / Spring
+/build
+/.gradle
+.gradle
+/out
+/bin
+*.class
+*.log
+*.jar
+*.war
+
+# IDE
+.idea
+.vscode
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings
+.factorypath
+
+# Frontend
+frontend/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.local
+frontend/package-lock.json
+# Keep package-lock if you want version consistency, but sometimes ignored in demos. keeping it is better usually.
+# removing package-lock.json from ignore for now, add if needed.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+src/main/resources/secret.yml
+application-secret.yml

@@ -1,0 +1,543 @@
+import { useState, useEffect, useRef } from 'react'
+import './App.css'
+
+const DebugOverlay = ({ className, debugLogs, setDebugLogs, debugEndRef }) => (
+  <div className={`debug-panel ${className}`}>
+    <div className="debug-header">
+      <span>Raw Data Logs</span>
+      <button onClick={() => setDebugLogs([])}>Clear</button>
+    </div>
+    <div className="debug-content">
+      {debugLogs.map((log, i) => (
+        <div key={i} className="debug-line">{log}</div>
+      ))}
+      <div ref={debugEndRef} />
+    </div>
+  </div>
+)
+
+const DebugToggle = ({ showDebug, setShowDebug, className = '' }) => (
+  <button className={`debug-toggle-btn ${className}`} onClick={() => setShowDebug(!showDebug)}>
+    {showDebug ? 'Hide Logs' : 'Show Raw Data'}
+  </button>
+)
+
+const ToastOverlay = ({ toasts }) => (
+  <div className="toast-container">
+    {toasts.map(t => (
+      <div key={t.id} className="toast">
+        <span>🔔</span> {t.msg}
+      </div>
+    ))}
+  </div>
+)
+
+function App() {
+  // --- View State ---
+  const [view, setView] = useState('LOGIN') // 'LOGIN', 'LIST', 'CALL'
+
+  // --- Data State ---
+  const [userId, setUserId] = useState('')
+  const [password, setPassword] = useState('')
+  const [token, setToken] = useState('')
+  const [targetId, setTargetId] = useState('')
+  const [userList, setUserList] = useState([])
+  const [filterText, setFilterText] = useState('')
+
+  // --- Chat State ---
+  const [chatMessages, setChatMessages] = useState([])
+  const [msgInput, setMsgInput] = useState('')
+
+  // --- Debug State ---
+  const [showDebug, setShowDebug] = useState(false)
+  const [debugLogs, setDebugLogs] = useState([])
+
+  const addDebugLog = (type, content) => {
+    const time = new Date().toLocaleTimeString()
+    setDebugLogs(prev => [...prev, `[${time}] ${type}: ${content}`])
+  }
+
+  // --- Toast State ---
+  const [toasts, setToasts] = useState([])
+
+  const addToast = (msg) => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, msg }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 3000)
+  }
+
+  // --- Refs ---
+  const eventSourceRef = useRef(null)
+  const peerConnectionRef = useRef(null)
+  const localStreamRef = useRef(null)
+  const remoteStreamRef = useRef(null)
+  const localVideoRef = useRef(null)
+  const remoteVideoRef = useRef(null)
+  const chatEndRef = useRef(null)
+  const debugEndRef = useRef(null)
+
+  const tokenRef = useRef('')
+  const handleSignalRef = useRef(null)
+
+  // --- Connection State ---
+  const initializingRef = useRef(null)
+  const pendingCandidates = useRef([])
+
+  const log = (msg) => {
+    // System messages to chat
+    // addChatMessage('SYSTEM', msg)
+    console.log(msg)
+  }
+
+  const addChatMessage = (sender, text) => {
+    setChatMessages(prev => [...prev, { sender, text, time: new Date().toLocaleTimeString() }])
+  }
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages])
+
+  useEffect(() => {
+    debugEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [debugLogs])
+
+  useEffect(() => {
+    if (view === 'CALL') {
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current
+      }
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current
+      }
+    }
+  }, [view])
+
+
+  // --- 1. SSE Connection & Login ---
+  const handleLogin = async () => {
+    if (!userId || !password) return
+    if (eventSourceRef.current) eventSourceRef.current.close()
+
+    try {
+      const res = await fetch('http://localhost:8080/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, password })
+      })
+
+      if (!res.ok) {
+        alert('Login failed')
+        return
+      }
+
+      const data = await res.json()
+      setToken(data.token)
+      tokenRef.current = data.token
+
+      const authToken = data.token
+
+      const es = new EventSource(`http://localhost:8080/sse/subscribe?token=${authToken}`)
+
+      es.addEventListener('connect', (e) => {
+        addDebugLog('SSE IN (connect)', e.data)
+        setView('LIST')
+      })
+
+      es.addEventListener('user_list', (e) => {
+        addDebugLog('SSE IN (user_list)', e.data)
+        const users = JSON.parse(e.data)
+        setUserList(users.filter(u => u !== userId))
+      })
+
+      es.addEventListener('signal', async (e) => {
+        addDebugLog('SSE IN', e.data)
+        const payload = JSON.parse(e.data)
+        handleSignalRef.current?.(payload)
+      })
+
+      es.onerror = (err) => {
+        console.error(err)
+      }
+
+      eventSourceRef.current = es
+
+    } catch (e) {
+      console.error(e)
+      alert('Login Error')
+    }
+  }
+
+  // --- 2. WebRTC Logic ---
+  const createPeerConnection = async (senderId) => {
+    if (peerConnectionRef.current) return peerConnectionRef.current
+    if (initializingRef.current) return initializingRef.current
+
+    const initPromise = (async () => {
+      // Add STUN server for better connectivity
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+        ]
+      })
+
+      pc.oniceconnectionstatechange = () => {
+        addDebugLog('ICE STATE', pc.iceConnectionState)
+      }
+
+      pc.onsignalingstatechange = () => {
+        addDebugLog('SIGNAL STATE', pc.signalingState)
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignal(targetId || senderId, 'CANDIDATE', JSON.stringify(event.candidate))
+        }
+      }
+
+      pc.ontrack = (event) => {
+        addDebugLog('TRACK', `Kind: ${event.track.kind}, Streams: ${event.streams.length}`)
+        remoteStreamRef.current = event.streams[0]
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0]
+          // Explicitly try to play
+          remoteVideoRef.current.play().catch(e => {
+            console.error('Remote video play error', e)
+            addDebugLog('PLAY ERROR', e.message)
+          })
+        }
+      }
+
+      if (!localStreamRef.current) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+          localStreamRef.current = stream
+          if (localVideoRef.current) localVideoRef.current.srcObject = stream
+          stream.getTracks().forEach(track => pc.addTrack(track, stream))
+        } catch (e) {
+          console.error('Error accessing media: ' + e.message)
+          addDebugLog('MEDIA ERROR', e.message)
+        }
+      } else {
+        localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current))
+      }
+
+      peerConnectionRef.current = pc
+      initializingRef.current = null
+      return pc
+    })()
+
+    initializingRef.current = initPromise
+    return initPromise
+  }
+
+  const [incomingCall, setIncomingCall] = useState(null)
+
+  const handleSignal = async (payload) => {
+    const { sender, type, data } = payload
+
+    if (type === 'CHAT') {
+      addChatMessage(sender, data)
+      return
+    }
+
+    if (type === 'HANGUP') {
+      if (incomingCall) addToast(`${sender} canceled the call.`)
+      else if (view === 'CALL') addToast(`${sender} ended the call.`)
+      handleHangup(false)
+      return
+    }
+
+    if (type === 'BUSY') {
+      addToast(`${sender} is busy.`)
+      handleHangup(false)
+      return
+    }
+
+    if (type === 'REJECT') {
+      addToast(`${sender} rejected the call.`)
+      handleHangup(false)
+      return
+    }
+
+    if (type === 'OFFER') {
+      if (view === 'CALL' || incomingCall) {
+        sendSignal(sender, 'BUSY', '{}')
+        return
+      }
+      setIncomingCall({ sender, data })
+      return
+    }
+
+    const pc = await createPeerConnection(sender)
+
+    if (type === 'ANSWER') {
+      await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(data)))
+    } else if (type === 'CANDIDATE') {
+      const candidate = JSON.parse(data)
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } else {
+        pendingCandidates.current.push(candidate)
+      }
+    }
+  }
+
+
+  // Update ref on every render to ensure SSE listener uses fresh state
+  handleSignalRef.current = handleSignal
+
+  const acceptCall = async () => {
+    if (!incomingCall) return
+    const { sender, data } = incomingCall
+    setTargetId(sender)
+    setView('CALL')
+    setChatMessages([])
+    setIncomingCall(null)
+
+    const pc = await createPeerConnection(sender)
+    await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(data)))
+
+    // Process any queued candidates
+    while (pendingCandidates.current.length > 0) {
+      const candidate = pendingCandidates.current.shift()
+      await pc.addIceCandidate(new RTCIceCandidate(candidate))
+    }
+
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    sendSignal(sender, 'ANSWER', JSON.stringify(answer))
+  }
+
+  const rejectCall = () => {
+    if (!incomingCall) return
+    sendSignal(incomingCall.sender, 'REJECT', '{}')
+    setIncomingCall(null)
+  }
+
+  const sendSignal = async (target, type, data) => {
+    if (!target) return
+    const payload = { sender: userId, target, type, data }
+    addDebugLog('SSE OUT', JSON.stringify(payload))
+    try {
+      await fetch('http://localhost:8080/sse/signal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenRef.current}` // Use tokenRef
+        },
+        body: JSON.stringify(payload)
+      })
+    } catch (e) { console.error(e) }
+  }
+
+  // --- Actions ---
+  const startCall = async (target) => {
+    if (!target) return
+    setTargetId(target)
+    setView('CALL')
+    setChatMessages([])
+
+    const pc = await createPeerConnection(target)
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    sendSignal(target, 'OFFER', JSON.stringify(offer))
+  }
+
+  const handleHangup = (shouldSendSignal = true) => {
+    if (shouldSendSignal && targetId) sendSignal(targetId, 'HANGUP', '{}')
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close()
+      peerConnectionRef.current = null
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop())
+      localStreamRef.current = null
+    }
+    if (localVideoRef.current) localVideoRef.current.srcObject = null
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
+
+    setTargetId('')
+    setIncomingCall(null)
+    setView('LIST')
+  }
+
+  const sendChatMessage = () => {
+    if (!msgInput.trim() || !targetId) return
+    sendSignal(targetId, 'CHAT', msgInput)
+    addChatMessage('ME', msgInput)
+    setMsgInput('')
+  }
+
+  const handleLogout = () => {
+    // 0. Notify server (optional but good for cleanup)
+    if (tokenRef.current) {
+      fetch('http://localhost:8080/sse/logout', {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${tokenRef.current}`
+        }
+      }).catch(console.error)
+    }
+
+    // 1. Close connections
+    if (eventSourceRef.current) eventSourceRef.current.close()
+    if (peerConnectionRef.current) peerConnectionRef.current.close()
+
+    // 2. Clear refs
+    eventSourceRef.current = null
+    peerConnectionRef.current = null
+    localStreamRef.current?.getTracks().forEach(t => t.stop())
+    localStreamRef.current = null
+    remoteStreamRef.current = null
+
+    // 3. Clear state
+    setUserId('')
+    setPassword('')
+    setToken('')
+    setTargetId('')
+    setUserList([])
+    setChatMessages([])
+    setDebugLogs([])
+    setView('LOGIN')
+  }
+
+  // --- Render Views ---
+  const filteredUsers = userList.filter(u => u.toLowerCase().includes(filterText.toLowerCase()))
+
+  // Reusable Header Component
+  const Header = ({ title, thin }) => (
+    <header className={`app-header ${thin ? 'header-thin' : ''}`}>
+      <div style={{ fontWeight: 'bold' }}>{title}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <span className="user-info">{userId}</span>
+        <button className="logout-btn" onClick={handleLogout}>Logout</button>
+      </div>
+    </header>
+  )
+
+  // 1. LOGIN
+  if (view === 'LOGIN') {
+    return (
+      <div className="container center-view">
+        <h1>Spring WebRTC</h1>
+        <p className="login-date">{new Date().toLocaleDateString()}</p>
+        <div className="login-box">
+          <input
+            type="text"
+            placeholder="Enter User ID..."
+            value={userId}
+            onChange={e => setUserId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()}
+          />
+          <input
+            type="password"
+            placeholder="Enter Password..."
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()}
+          />
+          <button onClick={handleLogin}>Login</button>
+
+        </div>
+        <ToastOverlay toasts={toasts} />
+      </div>
+    )
+  }
+
+  // 2. LIST (Contacts)
+  if (view === 'LIST') {
+    return (
+      <div className="container app-view">
+        <Header title="Contacts" />
+        <div className="search-bar">
+          <input
+            type="text"
+            placeholder="Search friends..."
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+          />
+        </div>
+        <div className="user-list-scroll">
+          {filteredUsers.length === 0 ? <p style={{ marginTop: 20, color: '#999' }}>No visible users</p> : (
+            filteredUsers.map(u => (
+              <div key={u} className="user-card">
+                <div className="avatar">{u.substring(0, 2).toUpperCase()}</div>
+                <div className="user-name">{u}</div>
+                <button className="call-btn-text" onClick={() => startCall(u)}>
+                  화상채팅
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {incomingCall && (
+          <div className="incoming-call-modal">
+            <div className="modal-content">
+              <h3>Incoming Call</h3>
+              <p><strong>{incomingCall.sender}</strong> is calling you...</p>
+              <div className="modal-actions">
+                <button className="accept-btn" onClick={acceptCall}>Accept</button>
+                <button className="reject-btn" onClick={rejectCall}>Reject</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showDebug && <DebugOverlay className="list-mode" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} />}
+        <DebugToggle showDebug={showDebug} setShowDebug={setShowDebug} />
+        <ToastOverlay toasts={toasts} />
+      </div>
+    )
+  }
+
+  // 3. CALL
+  if (view === 'CALL') {
+    return (
+      <div className="container call-view">
+        <Header title="Spring WebRTC" thin />
+        <div className="video-area">
+          <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
+          <div className="call-overlay">
+            <span className="call-status">On call with {targetId}</span>
+            <button className="hangup-fab" onClick={() => handleHangup(true)}>End Call</button>
+          </div>
+        </div>
+
+        <div className="call-bottom-container">
+          {showDebug && <DebugOverlay className="call-mode" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} />}
+          <div className="chat-area">
+            <div className="messages-list">
+              {chatMessages.map((m, i) => (
+                <div key={i} className={`message ${m.sender === 'ME' ? 'my-msg' : 'peer-msg'}`}>
+                  <span className="msg-text">{m.text}</span>
+                  <span className="msg-time">{m.time}</span>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="chat-input-bar">
+              <input
+                type="text"
+                placeholder="Message..."
+                value={msgInput}
+                onChange={e => setMsgInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendChatMessage()}
+              />
+              <button onClick={sendChatMessage}>Send</button>
+            </div>
+          </div>
+        </div>
+        <DebugToggle showDebug={showDebug} setShowDebug={setShowDebug} className="call-toggle" />
+        <ToastOverlay toasts={toasts} />
+
+      </div>
+    )
+  }
+
+  return <div>Loading...</div>
+}
+
+export default App

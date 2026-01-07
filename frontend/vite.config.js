@@ -9,5 +9,6 @@ export default defineConfig({
   },
   preview: {
     port: 9087, // Preview server port
+    allowedHosts: ['rnd.dacon.kr'],
   },
 })

@@ -60,27 +60,26 @@ html {
 
 .app-header {
     background: #fff;
-    padding: 10px 15px;
-    /* Thinner padding */
+    padding: 0 15px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: 40px;
-    /* Fixed thinner height */
+    height: 32px;
+    /* Adjusted to fit buttons */
     z-index: 100;
+    font-size: 0.8rem;
 }
 
 .header-thin {
-    position: absolute;
-    top: 0;
-    left: 0;
+    /* Removed absolute positioning to be part of flex flow */
     width: 100%;
     background: rgba(0, 0, 0, 0.3) !important;
-    /* Semi-transparent for call view */
     backdrop-filter: blur(5px);
     color: white !important;
     border-bottom: none !important;
+    flex-shrink: 0;
+    /* Prevent header from shrinking */
 }
 
 .logout-btn {
@@ -190,11 +189,21 @@ html {
 .call-view {
     background: #2d3436;
     color: white;
+    display: flex;
+    flex-direction: column;
+}
+
+.call-main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
 }
 
 .video-area {
-    flex: 6;
-    /* Top 60% */
+    flex: 1;
+    /* Takes remaining space when chat is docked */
     position: relative;
     background: black;
     overflow: hidden;
@@ -251,6 +260,24 @@ html {
     box-shadow: 0 4px 10px rgba(255, 118, 117, 0.4);
 }
 
+.screen-share-fab {
+    background: #0984e3;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(9, 132, 227, 0.4);
+    margin-right: 10px;
+}
+
+.screen-share-fab.active {
+    background: #fdcb6e;
+    color: #333;
+    box-shadow: 0 4px 10px rgba(253, 203, 110, 0.4);
+}
+
 .chat-area {
     flex: 4;
     /* Bottom 40% */
@@ -263,6 +290,111 @@ html {
     /* Slight overlap effect */
     z-index: 10;
     overflow: hidden;
+}
+
+/* Bottom Docked Debug Log */
+.debug-panel.bottom-docked {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 30%;
+    /* Occupy bottom 30% of screen */
+    background: rgba(30, 30, 30, 0.95);
+    border-top: 2px solid #555;
+    z-index: 4000;
+    /* Above most things, but below toast/modal */
+    display: flex;
+    flex-direction: column;
+}
+
+/* Floating Mode */
+.chat-floating {
+    position: absolute;
+    /* top/left/width/height set inline */
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    z-index: 2000;
+    /* Above video */
+}
+
+.chat-header-drag {
+    padding: 10px;
+    background: #dfe6e9;
+    /* Light grey header */
+    cursor: move;
+    font-weight: bold;
+    color: #636e72;
+    border-bottom: 1px solid #dcdde1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    /* Space for toggle button */
+    user-select: none;
+}
+
+/* Docked Right Mode */
+.chat-area.chat-docked-right {
+    position: relative;
+    /* For absolute resize handle */
+    /* width set inline via state */
+    border-left: 1px solid #ccc;
+    display: flex;
+    flex-direction: column;
+    background: #f0f2f5;
+    z-index: 20;
+    box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+    flex: none !important;
+    /* Strictly respect width */
+    overflow: visible;
+    /* Allow handle to protrude */
+}
+
+.resize-handle-left {
+    position: absolute;
+    left: -5px;
+    /* Center on the border */
+    top: 0;
+    width: 10px;
+    /* Wider hit area */
+    height: 100%;
+    background: transparent;
+    cursor: ew-resize;
+    z-index: 200;
+    /* Above header */
+}
+
+.resize-handle-left:hover {
+    background: rgba(255, 255, 255, 0.3);
+    /* Visible on dark video */
+}
+
+.dock-toggle-btn {
+    background: #74b9ff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-left: 10px;
+}
+
+.dock-toggle-btn:hover {
+    background: #0984e3;
+}
+
+.resize-handle-corner {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, transparent 50%, #b2bec3 50%);
+    cursor: nwse-resize;
+    z-index: 10;
 }
 
 .messages-list {
@@ -281,6 +413,8 @@ html {
     font-size: 0.9rem;
     line-height: 1.4;
     position: relative;
+    word-break: break-word;
+    /* Prevent long text overflow */
 }
 
 .my-msg {
@@ -336,6 +470,8 @@ html {
     border: 1px solid #ddd;
     border-radius: 20px;
     outline: none;
+    min-width: 0;
+    /* Allow shrinking below default content size */
 }
 
 .chat-input-bar button {
@@ -343,7 +479,8 @@ html {
     color: white;
     border: none;
     border-radius: 20px;
-    padding: 0 20px;
+    padding: 0 10px;
+    /* Reduced padding for better shrinking */
     cursor: pointer;
 }
 

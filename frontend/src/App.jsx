@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
-const DebugOverlay = ({ className, debugLogs, setDebugLogs, debugEndRef }) => (
+const DebugOverlay = ({ className, debugLogs, setDebugLogs, debugEndRef, setShowDebug }) => (
   <div className={`debug-panel ${className}`}>
     <div className="debug-header">
       <span>Raw Data Logs</span>
-      <button onClick={() => setDebugLogs([])}>Clear</button>
+      <div style={{ display: 'flex', gap: '5px' }}>
+        <button onClick={() => setDebugLogs([])}>Clear</button>
+        <button onClick={() => setShowDebug(false)}>Close</button>
+      </div>
     </div>
     <div className="debug-content">
       {debugLogs.map((log, i) => (
@@ -43,6 +46,14 @@ function App() {
   const [targetId, setTargetId] = useState('')
   const [userList, setUserList] = useState([])
   const [filterText, setFilterText] = useState('')
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
+
+  // --- Layout State (Chat) ---
+  const [chatMode, setChatMode] = useState('FLOATING') // 'FLOATING' | 'DOCKED_RIGHT'
+  const [chatRect, setChatRect] = useState({ x: 20, y: 100, width: 300, height: 400 }) // Floating
+  const [dockedWidth, setDockedWidth] = useState(window.innerWidth * 0.3) // Docked width (30%)
+  const draggingRef = useRef(null) // 'MOVE' | 'RESIZE_SE' | 'RESIZE_W' | null
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
 
   // --- Chat State ---
   const [chatMessages, setChatMessages] = useState([])
@@ -74,6 +85,7 @@ function App() {
   const localStreamRef = useRef(null)
   const remoteStreamRef = useRef(null)
   const localVideoRef = useRef(null)
+  const cameraStreamRef = useRef(null)
   const remoteVideoRef = useRef(null)
   const chatEndRef = useRef(null)
   const debugEndRef = useRef(null)
@@ -114,11 +126,110 @@ function App() {
     }
   }, [view])
 
+  // --- Drag & Resize Handlers ---
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!draggingRef.current) return
+
+      if (draggingRef.current === 'MOVE') {
+        setChatRect(prev => ({
+          ...prev,
+          x: e.clientX - dragOffsetRef.current.x,
+          y: e.clientY - dragOffsetRef.current.y
+        }))
+      } else if (draggingRef.current === 'RESIZE_SE') {
+        // Floating resize (Bottom-Right)
+        setChatRect(prev => ({
+          ...prev,
+          width: Math.max(200, e.clientX - prev.x),
+          height: Math.max(150, e.clientY - prev.y)
+        }))
+      } else if (draggingRef.current === 'RESIZE_W') {
+        const newWidth = document.body.clientWidth - e.clientX
+        setDockedWidth(Math.max(150, Math.min(newWidth, 800)))
+      }
+    }
+
+    const handleMouseUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = null
+        // Reset body cursor
+        document.body.style.cursor = 'default'
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  const startDrag = (e, type) => {
+    e.preventDefault()
+    draggingRef.current = type
+    if (type === 'MOVE') {
+      dragOffsetRef.current = {
+        x: e.clientX - chatRect.x,
+        y: e.clientY - chatRect.y
+      }
+      document.body.style.cursor = 'move'
+    } else if (type === 'RESIZE_SE') {
+      document.body.style.cursor = 'nwse-resize'
+    } else if (type === 'RESIZE_W') {
+      document.body.style.cursor = 'ew-resize'
+    }
+  }
+
+  // --- Auto-Login (Restore Session) ---
+  useEffect(() => {
+    const storedUserId = sessionStorage.getItem('userId')
+    const storedToken = sessionStorage.getItem('token')
+
+    if (storedUserId && storedToken) {
+      setUserId(storedUserId)
+      setToken(storedToken)
+      tokenRef.current = storedToken
+      connectToSSE(storedToken, storedUserId)
+    }
+  }, [])
+
 
   // --- 1. SSE Connection & Login ---
+  const connectToSSE = (authToken, myId) => {
+    if (eventSourceRef.current) eventSourceRef.current.close()
+
+    const es = new EventSource(`http://localhost:8080/sse/subscribe?token=${authToken}`)
+
+    es.addEventListener('connect', (e) => {
+      addDebugLog('SSE IN (connect)', e.data)
+      setView('LIST')
+    })
+
+    es.addEventListener('user_list', (e) => {
+      addDebugLog('SSE IN (user_list)', e.data)
+      const users = JSON.parse(e.data)
+      setUserList(users.filter(u => u !== myId))
+    })
+
+    es.addEventListener('signal', async (e) => {
+      addDebugLog('SSE IN', e.data)
+      const payload = JSON.parse(e.data)
+      handleSignalRef.current?.(payload)
+    })
+
+    es.onerror = (err) => {
+      console.error(err)
+      // Optional: If error persists (e.g. 401), we might want to clear session
+      // For now, let's just log it. If the token is invalid, the connection won't open.
+    }
+
+    eventSourceRef.current = es
+  }
+
   const handleLogin = async () => {
     if (!userId || !password) return
-    if (eventSourceRef.current) eventSourceRef.current.close()
 
     try {
       const res = await fetch('http://localhost:8080/auth/login', {
@@ -136,32 +247,11 @@ function App() {
       setToken(data.token)
       tokenRef.current = data.token
 
-      const authToken = data.token
+      // Save session
+      sessionStorage.setItem('userId', userId)
+      sessionStorage.setItem('token', data.token)
 
-      const es = new EventSource(`http://localhost:8080/sse/subscribe?token=${authToken}`)
-
-      es.addEventListener('connect', (e) => {
-        addDebugLog('SSE IN (connect)', e.data)
-        setView('LIST')
-      })
-
-      es.addEventListener('user_list', (e) => {
-        addDebugLog('SSE IN (user_list)', e.data)
-        const users = JSON.parse(e.data)
-        setUserList(users.filter(u => u !== userId))
-      })
-
-      es.addEventListener('signal', async (e) => {
-        addDebugLog('SSE IN', e.data)
-        const payload = JSON.parse(e.data)
-        handleSignalRef.current?.(payload)
-      })
-
-      es.onerror = (err) => {
-        console.error(err)
-      }
-
-      eventSourceRef.current = es
+      connectToSSE(data.token, userId)
 
     } catch (e) {
       console.error(e)
@@ -214,6 +304,7 @@ function App() {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
           localStreamRef.current = stream
           if (localVideoRef.current) localVideoRef.current.srcObject = stream
+          cameraStreamRef.current = stream
           stream.getTracks().forEach(track => pc.addTrack(track, stream))
         } catch (e) {
           console.error('Error accessing media: ' + e.message)
@@ -332,6 +423,73 @@ function App() {
     } catch (e) { console.error(e) }
   }
 
+  const stopScreenShare = async () => {
+    const cameraStream = cameraStreamRef.current
+    if (!cameraStream) {
+      console.error("No camera stream found to revert to")
+      setIsScreenSharing(false)
+      return
+    }
+
+    // Replace video track in PC if active
+    if (peerConnectionRef.current) {
+      const videoTrack = cameraStream.getVideoTracks()[0]
+      const sender = peerConnectionRef.current.getSenders().find(s => s.track.kind === 'video')
+      if (sender) {
+        try {
+          await sender.replaceTrack(videoTrack)
+        } catch (e) {
+          console.error("Error replacing track:", e)
+        }
+      }
+    }
+
+    // Stop the screen share stream (which is effectively localStreamRef.current before we swap it back)
+    if (localStreamRef.current && localStreamRef.current.id !== cameraStream.id) {
+      localStreamRef.current.getTracks().forEach(t => t.stop())
+    }
+
+    // Update local view
+    localStreamRef.current = cameraStream
+    if (localVideoRef.current) localVideoRef.current.srcObject = cameraStream
+    setIsScreenSharing(false)
+  }
+
+  const startScreenShare = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+      const screenTrack = screenStream.getVideoTracks()[0]
+
+      // Handle "Stop sharing" from browser UI (e.g. Chrome floating bar)
+      screenTrack.onended = () => {
+        stopScreenShare()
+      }
+
+      if (peerConnectionRef.current) {
+        const sender = peerConnectionRef.current.getSenders().find(s => s.track.kind === 'video')
+        if (sender) {
+          await sender.replaceTrack(screenTrack)
+        }
+      }
+
+      localStreamRef.current = screenStream
+      if (localVideoRef.current) localVideoRef.current.srcObject = screenStream
+      setIsScreenSharing(true)
+    } catch (e) {
+      console.error("Screen share error:", e)
+      // If cancelled or error, ensure state is correct
+      setIsScreenSharing(false)
+    }
+  }
+
+  const toggleScreenShare = () => {
+    if (isScreenSharing) {
+      stopScreenShare()
+    } else {
+      startScreenShare()
+    }
+  }
+
   // --- Actions ---
   const startCall = async (target) => {
     if (!target) return
@@ -355,6 +513,10 @@ function App() {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop())
       localStreamRef.current = null
+    }
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop())
+      cameraStreamRef.current = null
     }
     if (localVideoRef.current) localVideoRef.current.srcObject = null
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
@@ -382,6 +544,10 @@ function App() {
       }).catch(console.error)
     }
 
+    // Clear session
+    sessionStorage.removeItem('userId')
+    sessionStorage.removeItem('token')
+
     // 1. Close connections
     if (eventSourceRef.current) eventSourceRef.current.close()
     if (peerConnectionRef.current) peerConnectionRef.current.close()
@@ -402,6 +568,7 @@ function App() {
     setChatMessages([])
     setDebugLogs([])
     setView('LOGIN')
+    setIsScreenSharing(false)
   }
 
   // --- Render Views ---
@@ -485,7 +652,7 @@ function App() {
             </div>
           </div>
         )}
-        {showDebug && <DebugOverlay className="list-mode" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} />}
+        {showDebug && <DebugOverlay className="list-mode" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} setShowDebug={setShowDebug} />}
         <DebugToggle showDebug={showDebug} setShowDebug={setShowDebug} />
         <ToastOverlay toasts={toasts} />
       </div>
@@ -497,18 +664,46 @@ function App() {
     return (
       <div className="container call-view">
         <Header title="Spring WebRTC" thin />
-        <div className="video-area">
-          <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
-          <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
-          <div className="call-overlay">
-            <span className="call-status">On call with {targetId}</span>
-            <button className="hangup-fab" onClick={() => handleHangup(true)}>End Call</button>
-          </div>
-        </div>
 
-        <div className="call-bottom-container">
-          {showDebug && <DebugOverlay className="call-mode" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} />}
-          <div className="chat-area">
+        <div className="call-main-layout">
+          <div className="video-area">
+            <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
+            <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
+            <div className="call-overlay">
+              <span className="call-status">On call with {targetId}</span>
+              <button className={`screen-share-fab ${isScreenSharing ? 'active' : ''}`} onClick={toggleScreenShare}>
+                {isScreenSharing ? 'Stop Share' : 'Screen Share'}
+              </button>
+              <button className="hangup-fab" onClick={() => handleHangup(true)}>End Call</button>
+            </div>
+          </div>
+
+          {/* Chat Component - Shared logic for content, different shells based on mode */}
+          <div
+            className={`chat-area ${chatMode === 'FLOATING' ? 'chat-floating' : 'chat-docked-right'}`}
+            style={chatMode === 'FLOATING' ? {
+              left: chatRect.x,
+              top: chatRect.y,
+              width: chatRect.width,
+              height: chatRect.height
+            } : {
+              width: dockedWidth
+            }}
+          >
+            <div
+              className="chat-header-drag"
+              onMouseDown={chatMode === 'FLOATING' ? e => startDrag(e, 'MOVE') : undefined}
+              style={{ cursor: chatMode === 'FLOATING' ? 'move' : 'default' }}
+            >
+              <span>💬 Chat</span>
+              <button
+                className="dock-toggle-btn"
+                onClick={() => setChatMode(prev => prev === 'FLOATING' ? 'DOCKED_RIGHT' : 'FLOATING')}
+                title="Toggle Mode"
+              >
+                {chatMode === 'FLOATING' ? 'Dock' : 'Float'}
+              </button>
+            </div>
             <div className="messages-list">
               {chatMessages.map((m, i) => (
                 <div key={i} className={`message ${m.sender === 'ME' ? 'my-msg' : 'peer-msg'}`}>
@@ -528,11 +723,21 @@ function App() {
               />
               <button onClick={sendChatMessage}>Send</button>
             </div>
+            {chatMode === 'FLOATING' && (
+              <div className="resize-handle-corner" onMouseDown={e => startDrag(e, 'RESIZE_SE')} />
+            )}
+            {chatMode === 'DOCKED_RIGHT' && (
+              <div className="resize-handle-left" onMouseDown={e => startDrag(e, 'RESIZE_W')} />
+            )}
           </div>
         </div>
+
+        {showDebug && (
+          <DebugOverlay className="bottom-docked" debugLogs={debugLogs} setDebugLogs={setDebugLogs} debugEndRef={debugEndRef} setShowDebug={setShowDebug} />
+        )}
+
         <DebugToggle showDebug={showDebug} setShowDebug={setShowDebug} className="call-toggle" />
         <ToastOverlay toasts={toasts} />
-
       </div>
     )
   }

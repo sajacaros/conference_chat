@@ -6,9 +6,19 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import com.example.sse.repository.CallSessionRepository;
+import com.example.sse.domain.CallSession;
+import com.example.sse.domain.CallStatus;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class SseService {
+
+    private final CallSessionRepository callSessionRepository;
 
     // Store active connections: userId -> SseEmitter
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
@@ -48,12 +58,39 @@ public class SseService {
         return emitter;
     }
 
+    @Transactional
     public void logout(String userId) {
         SseEmitter emitter = emitters.remove(userId);
         if (emitter != null) {
             emitter.complete();
             broadcastUserList();
             System.out.println("User explicitly logged out: " + userId);
+
+            // End any active sessions for this user
+            endActiveSessions(userId);
+        }
+    }
+
+    private void endActiveSessions(String userId) {
+        // Close sessions where user is caller
+        List<CallSession> activeAsCaller = callSessionRepository.findByCallerIdAndStatus(userId, CallStatus.CONNECTED);
+        activeAsCaller.addAll(callSessionRepository.findByCallerIdAndStatus(userId, CallStatus.TRYING));
+
+        for (CallSession session : activeAsCaller) {
+            // If explicit logout/cleanup, maybe we can say CANCELLED or ENDED depending on
+            // state?
+            // Use ENDED for simplicity or determine based on current state
+            session.end(CallStatus.ENDED);
+            callSessionRepository.save(session);
+        }
+
+        // Close sessions where user is callee
+        List<CallSession> activeAsCallee = callSessionRepository.findByCalleeIdAndStatus(userId, CallStatus.CONNECTED);
+        activeAsCallee.addAll(callSessionRepository.findByCalleeIdAndStatus(userId, CallStatus.TRYING));
+
+        for (CallSession session : activeAsCallee) {
+            session.end(CallStatus.ENDED);
+            callSessionRepository.save(session);
         }
     }
 
@@ -99,8 +136,93 @@ public class SseService {
     }
 
     // Send a message (signal) to a specific target user
+    @Transactional
     public void sendSignal(String senderId, String targetId, String type, String data) {
         SseEmitter emitter = emitters.get(targetId);
+
+        // --- CDC Logic Start ---
+        try {
+            if ("offer".equalsIgnoreCase(type)) {
+
+                // BUSY Check
+                if (callSessionRepository.existsActiveSession(targetId)) {
+                    CallSession busySession = new CallSession(
+                            UUID.randomUUID().toString(),
+                            senderId,
+                            targetId,
+                            CallStatus.TRYING // Start as TRYING
+                    );
+                    busySession.end(CallStatus.BUSY); // Immediately end as BUSY
+                    callSessionRepository.save(busySession);
+                    System.out.println("CDC: Created Session (BUSY) " + busySession.getSessionId());
+
+                    // Optional: Send BUSY signal back to sender?
+                    // For now, we just record it as requested.
+
+                    return; // Stop processing OFFER
+                }
+
+                CallSession session = new CallSession(
+                        UUID.randomUUID().toString(),
+                        senderId,
+                        targetId,
+                        CallStatus.TRYING);
+                callSessionRepository.save(session);
+                System.out.println("CDC: Created Session (TRYING) " + session.getSessionId());
+            } else if ("answer".equalsIgnoreCase(type)) {
+                // Find the session where 'targetId' (original caller) called 'senderId'
+                // (original callee)
+                callSessionRepository.findTopByCallerIdAndCalleeIdOrderByCreatedAtDesc(targetId, senderId)
+                        .ifPresent(session -> {
+                            if (CallStatus.TRYING.equals(session.getStatus())) {
+                                session.connect();
+                                callSessionRepository.save(session);
+                                System.out.println("CDC: Updated Session (CONNECTED) " + session.getSessionId());
+                            }
+                        });
+            } else if ("hangup".equalsIgnoreCase(type) || "bye".equalsIgnoreCase(type) ||
+                    "reject".equalsIgnoreCase(type) || "busy".equalsIgnoreCase(type)) {
+                // Handle explicit hangup/reject/busy
+                // Case 1: Caller hangs up (senderId is Caller)
+                callSessionRepository.findTopByCallerIdAndCalleeIdOrderByCreatedAtDesc(senderId, targetId)
+                        .ifPresent(session -> {
+                            if (!session.getStatus().isTerminal()) {
+                                if (session.getStatus() == CallStatus.TRYING) {
+                                    // Caller hung up while TRYING -> CANCELLED
+                                    session.end(CallStatus.CANCELLED);
+                                } else {
+                                    // CONNECTED -> ENDED
+                                    session.end(CallStatus.ENDED);
+                                }
+                                callSessionRepository.save(session);
+                            }
+                        });
+                // Case 2: Callee hangs up (senderId is Callee, targetId is Caller)
+                callSessionRepository.findTopByCallerIdAndCalleeIdOrderByCreatedAtDesc(targetId, senderId)
+                        .ifPresent(session -> {
+                            if (!session.getStatus().isTerminal()) {
+                                if (session.getStatus() == CallStatus.TRYING) {
+                                    // Callee responding to TRYING
+                                    if ("busy".equalsIgnoreCase(type)) {
+                                        session.end(CallStatus.BUSY);
+                                    } else {
+                                        // Default to REJECTED for hangup/reject during trying
+                                        session.end(CallStatus.REJECTED);
+                                    }
+                                } else {
+                                    // CONNECTED -> ENDED
+                                    session.end(CallStatus.ENDED);
+                                }
+                                callSessionRepository.save(session);
+                            }
+                        });
+            }
+        } catch (Exception e) {
+            System.err.println("CDC Error: " + e.getMessage());
+            // Don't fail the signal sending
+        }
+        // --- CDC Logic End ---
+
         if (emitter != null) {
             try {
                 // Determine event name based on signal type (OFFER, ANSWER, CANDIDATE)

@@ -3,4 +3,18 @@ server:
 spring:
   config:
     import: "optional:classpath:secret.yml"
+  datasource:
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    schemas: conference_chat
+    create-schemas: true
+    enabled: true
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        default_schema: conference_chat
 

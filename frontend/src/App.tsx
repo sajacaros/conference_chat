@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
 import { useSSE } from './hooks/useSSE'
@@ -11,15 +11,9 @@ import UserListPage from './pages/UserListPage'
 import CallPage from './pages/CallPage'
 
 function RedirectToLogin() {
-    console.log('[RedirectToLogin] Render')
     useEffect(() => {
-        console.log('[RedirectToLogin] Executing redirect')
-        // Using window.location.reload() or hard navigation to clear any router state glitches
-        // However, standard SPA navigation should use navigate. 
-        // Let's try to slightly delay it to let the render commit.
         const t = setTimeout(() => {
-            // window.location.href = '/login' // This is a hard reload
-            window.location.replace('/login') // Force browser nav
+            window.location.replace('/login')
         }, 100)
         return () => clearTimeout(t)
     }, [])
@@ -36,8 +30,6 @@ function App() {
 
     // -- Hooks --
     const { user, loading: authLoading, login, logout } = useAuth()
-
-    console.log('[App] Render. User:', JSON.stringify(user?.email), 'Loading:', authLoading, 'Path:', location.pathname)
     const { messages, addMessage, clearMessages } = useChat()
     const [userList, setUserList] = useState<any[]>([])
     const [incomingCall, setIncomingCall] = useState<{ sender: string; data: any } | null>(null)
@@ -49,8 +41,18 @@ function App() {
 
     const [signalHandler, setSignalHandler] = useState<((sender: string, type: string, data: any) => Promise<void>) | null>(null)
 
+    // Use refs for handlers to avoid recreation
+    const signalHandlerRef = useRef(signalHandler)
+    const incomingCallRef = useRef(incomingCall)
+
+    useEffect(() => {
+        signalHandlerRef.current = signalHandler
+        incomingCallRef.current = incomingCall
+    }, [signalHandler, incomingCall])
+
     const handleSSESignal = useCallback((payload: any) => {
         const { sender, type, data } = payload
+        console.log('[App] SSE Signal received:', { sender, type, pathname: location.pathname })
 
         if (type === 'CHAT') {
             addMessage(sender, data)
@@ -58,43 +60,51 @@ function App() {
         }
 
         if (type === 'OFFER') {
+            console.log('[App] OFFER received from:', sender, 'current path:', location.pathname)
             if (location.pathname === '/call') {
+                console.log('[App] Already in call, should send BUSY')
                 // sendSignal(sender, 'BUSY', {}) // Need access to sendSignal here.
             } else {
+                console.log('[App] Setting incoming call:', { sender, data })
                 setIncomingCall({ sender, data })
             }
             return
         }
 
-        if (signalHandler) {
-            signalHandler(sender, type, data)
+        if (signalHandlerRef.current) {
+            signalHandlerRef.current(sender, type, data)
         } else {
             if (type === 'HANGUP' || type === 'REJECT') {
-                if (incomingCall && incomingCall.sender === sender) {
+                const currentCall = incomingCallRef.current
+                if (currentCall && currentCall.sender === sender) {
                     setIncomingCall(null)
-                    // alert('Call ended/rejected')
                 }
             }
         }
 
         if (type === 'HANGUP') {
-            if (incomingCall && incomingCall.sender === sender) {
+            const currentCall = incomingCallRef.current
+            if (currentCall && currentCall.sender === sender) {
                 setIncomingCall(null)
             }
         }
 
-    }, [addMessage, location.pathname, incomingCall, signalHandler])
+    }, [addMessage, location.pathname])
 
     // -- SSE Handlers --
     const handleSSEConnect = useCallback(() => {
-        console.log('Connected to SSE')
+        console.log('[App] SSE Connected successfully')
+    }, [])
+
+    const handleUserList = useCallback((users: any[]) => {
+        setUserList(users)
     }, [])
 
     // -- SSE --
     const { connect, disconnect, sendSignal } = useSSE({
         token: user?.token,
         email: user?.email,
-        onUserList: setUserList,
+        onUserList: handleUserList,
         onSignal: handleSSESignal,
         onConnect: handleSSEConnect
     })
@@ -109,15 +119,20 @@ function App() {
         sessionStorage.removeItem('call_initiator')
         sessionStorage.removeItem('call_offer')
 
-        // navigate('/') // Navigation issue fix
-        window.location.href = '/'
+        // Clear call state BEFORE setting isCallSetup to false
+        // to prevent useEffect from re-triggering a call
+        setCallTarget('')
+        setIsCallInitiator(false)
 
         clearMessages()
         setLocalStream(null)
         setRemoteStream(null)
         setIsCallSetup(false)
         setIncomingCall(null)
-    }, [navigate, clearMessages])
+
+        // Navigate after state is cleared
+        window.location.href = '/'
+    }, [clearMessages])
 
     const handleLocalStream = useCallback((s: MediaStream) => setLocalStream(s), [])
     const handleRemoteStream = useCallback((s: MediaStream) => setRemoteStream(s), [])
@@ -137,10 +152,17 @@ function App() {
         onRemoteStream: handleRemoteStream
     })
 
-    // Link signal handler
+    // Link signal handler - use ref to avoid infinite loop
+    const handleWebRTCSignalRef = useRef(handleWebRTCSignal)
     useEffect(() => {
-        setSignalHandler(() => handleWebRTCSignal)
+        handleWebRTCSignalRef.current = handleWebRTCSignal
     }, [handleWebRTCSignal])
+
+    useEffect(() => {
+        setSignalHandler(() => (sender: string, type: string, data: any) => {
+            return handleWebRTCSignalRef.current(sender, type, data)
+        })
+    }, []) // Only set once
 
     // -- Effects --
     useEffect(() => {
@@ -153,70 +175,60 @@ function App() {
 
     // -- Auto-Start Call Logic --
     useEffect(() => {
-        if (location.pathname === '/call') {
-            // Prevent multiple initializations
-            if (isCallSetup) return
-
-            // Restore from Session Storage if state is missing (e.g. after refresh/hard-nav)
-            let target = callTarget
-            let initiator = isCallInitiator
-            let offerData = null
-
-            if (!target) {
-                const sessionTarget = sessionStorage.getItem('call_target')
-                const sessionInitiator = sessionStorage.getItem('call_initiator')
-                const sessionOffer = sessionStorage.getItem('call_offer')
-
-                if (sessionTarget) {
-                    target = sessionTarget
-                    setCallTarget(target)
-                }
-                if (sessionInitiator) {
-                    initiator = sessionInitiator === 'true'
-                    setIsCallInitiator(initiator)
-                }
-                if (sessionOffer) {
-                    offerData = JSON.parse(sessionOffer)
-                }
-            }
-
-            console.log('[App] Call Effect Triggered. Role:', initiator ? 'INITIATOR' : 'RECEIVER')
-
-            const initCall = async () => {
-                setIsCallSetup(true)
-                try {
-                    if (initiator) {
-                        if (!target) throw new Error('No target')
-                        console.log('[App] Starting Call to', target)
-                        await webrtcStartCall(target)
-                    } else {
-                        // Receiver
-                        const data = incomingCall?.data || offerData
-                        if (data) {
-                            console.log('[App] Accepting Call from', target)
-                            await webrtcAcceptCall(target, data)
-                            setIncomingCall(null)
-                        } else {
-                            console.warn('[App] No offer data for receiver')
-                            // navigate('/') // Optional: Go back if invalid
-                        }
-                    }
-                } catch (e) {
-                    console.error('[App] Call Init Failed:', e)
-                    // navigate('/')
-                    alert('Call failed to start: ' + (e as Error).message)
-                }
-            }
-
-            // Only run if we don't have streams yet (or assume we need to start)
-            if (!localStream) {
-                initCall()
-            }
-        } else {
+        if (location.pathname !== '/call') {
             // Reset setup flag when leaving
             if (isCallSetup) setIsCallSetup(false)
+            return
         }
-    }, [location.pathname, isCallInitiator, callTarget, incomingCall, webrtcStartCall, webrtcAcceptCall, isCallSetup, navigate, localStream])
+
+        // Wait for user to be loaded
+        if (!user) {
+            console.log('[App] Call init: waiting for user to load')
+            return
+        }
+
+        // Prevent multiple initializations
+        if (isCallSetup || localStream) return
+
+        // Restore from Session Storage if state is missing (e.g. after refresh/hard-nav)
+        const sessionTarget = sessionStorage.getItem('call_target')
+        const sessionInitiator = sessionStorage.getItem('call_initiator')
+        const sessionOffer = sessionStorage.getItem('call_offer')
+
+        const target = callTarget || sessionTarget
+        const initiator = callTarget ? isCallInitiator : sessionInitiator === 'true'
+        const offerData = sessionOffer ? JSON.parse(sessionOffer) : null
+
+        if (!target) return
+
+        // Update state only once
+        if (!callTarget && sessionTarget) {
+            setCallTarget(sessionTarget)
+            setIsCallInitiator(sessionInitiator === 'true')
+        }
+
+        const initCall = async () => {
+            setIsCallSetup(true)
+            try {
+                if (initiator) {
+                    await webrtcStartCall(target)
+                } else {
+                    // Receiver
+                    const data = incomingCall?.data || offerData
+                    if (data) {
+                        await webrtcAcceptCall(target, data)
+                        if (incomingCall) setIncomingCall(null)
+                    }
+                }
+            } catch (e) {
+                console.error('[Call] Failed to start:', e)
+                alert('Call failed to start: ' + (e as Error).message)
+            }
+        }
+
+        initCall()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname, localStream, isCallSetup, user])  // Added user to wait for auth
 
 
     // -- Actions --
@@ -229,12 +241,10 @@ function App() {
             })
             if (!res.ok) throw new Error('Login failed')
             const data = await res.json()
-            console.log('[App] Login success, data:', data)
             login(email, data.token)
-            console.log('[App] Hard Redirect to /')
             window.location.replace('/')
         } catch (e) {
-            console.error('[App] Login error:', e)
+            console.error('[Login] Failed:', e)
             throw e as Error
         }
     }
@@ -245,7 +255,6 @@ function App() {
     }
 
     const handleStartCall = (target: string) => {
-        console.log('[App] HandleStartCall: Saving to Session & Hard Nav...')
         sessionStorage.setItem('call_target', target)
         sessionStorage.setItem('call_initiator', 'true')
         window.location.href = '/call'
@@ -253,7 +262,6 @@ function App() {
 
     const handleAcceptCall = () => {
         if (!incomingCall) return
-        console.log('[App] HandleAcceptCall: Saving to Session & Hard Nav...')
         sessionStorage.setItem('call_target', incomingCall.sender)
         sessionStorage.setItem('call_initiator', 'false')
         sessionStorage.setItem('call_offer', JSON.stringify(incomingCall.data))
@@ -278,6 +286,14 @@ function App() {
         if (!callTarget) return
         sendSignal(callTarget, 'CHAT', text)
         addMessage('ME', text)
+    }
+
+    const hangupWrapped = () => {
+        if (callTarget) {
+            webrtcHangup(callTarget)
+        } else {
+            webrtcHangup()
+        }
     }
 
     if (authLoading) {
@@ -314,7 +330,7 @@ function App() {
                         email={user.email}
                         localStream={localStream}
                         remoteStream={remoteStream}
-                        onHangup={webrtcHangup}
+                        onHangup={hangupWrapped}
                         isScreenSharing={isScreenSharing}
                         onToggleScreenShare={toggleScreenShare}
                         chatMessages={messages}

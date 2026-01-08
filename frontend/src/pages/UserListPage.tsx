@@ -31,14 +31,14 @@ export default function UserListPage({
 }: UserListPageProps) {
     const [filter, setFilter] = useState('')
 
-    console.log('UserList Debug:', { myEmail: email, users })
+    console.log('[UserListPage] incomingCall:', incomingCall)
+
     const filteredUsers = users.filter(u =>
         u.email.toLowerCase() !== email.toLowerCase() &&
         (u.email.toLowerCase().includes(filter.toLowerCase()) ||
             u.username.toLowerCase().includes(filter.toLowerCase()))
     )
 
-    console.log('[UserListPage] Render. Filtered:', filteredUsers.length)
     if (!email) return <div className="text-red-500">Error: No Email</div>
 
     return (

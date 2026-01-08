@@ -75,8 +75,21 @@ export default function CallPage({
     }, [localStream])
 
     useEffect(() => {
+        console.log('[CallPage] remoteStream changed:', {
+            hasStream: !!remoteStream,
+            hasVideoRef: !!remoteVideoRef.current,
+            audioTracks: remoteStream?.getAudioTracks().length || 0,
+            videoTracks: remoteStream?.getVideoTracks().length || 0
+        })
+
         if (remoteVideoRef.current && remoteStream) {
+            console.log('[CallPage] Setting srcObject on remote video')
             remoteVideoRef.current.srcObject = remoteStream
+
+            // Force play
+            remoteVideoRef.current.play().catch(e => {
+                console.error('[CallPage] Remote video play error:', e)
+            })
         }
     }, [remoteStream])
 
@@ -85,29 +98,48 @@ export default function CallPage({
             <Header title="Call" email={email} onLogout={onHangup} className="absolute top-0 left-0 right-0 z-10 bg-transparent border-0 bg-gradient-to-b from-black/80 to-transparent pointer-events-none [&>*]:pointer-events-auto" />
 
             <div className="flex-1 flex relative">
-                {/* Video Area */}
-                <div className="flex-1 relative bg-gray-900 flex items-center justify-center">
-                    {/* Remote Video (Full) */}
-                    <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-full object-contain"
-                    />
-
-                    {/* Local Video (PIP) */}
-                    <div className="absolute bottom-4 right-4 w-48 aspect-video bg-black rounded-lg overflow-hidden border border-gray-700 shadow-xl z-20">
+                {/* Video + Controls Column */}
+                <div className="flex-1 flex flex-col">
+                    {/* Video Area */}
+                    <div className="h-[calc(100vh-5rem)] relative bg-gray-900 overflow-hidden flex items-center justify-center">
+                        {/* Remote Video - fills available height, width auto-adjusts */}
                         <video
-                            ref={localVideoRef}
+                            ref={remoteVideoRef}
                             autoPlay
                             playsInline
-                            muted
-                            className="w-full h-full object-cover"
+                            className="h-full w-auto object-contain"
                         />
+                        {!remoteStream && (
+                            <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                                <div className="text-center">
+                                    <div className="text-6xl mb-4">📹</div>
+                                    <div className="text-lg">Waiting for remote video...</div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Local Video (PIP) */}
+                        <div className="absolute bottom-4 right-4 w-48 aspect-video bg-black rounded-lg overflow-hidden border border-gray-700 shadow-xl z-20">
+                            <video
+                                ref={localVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                className="w-full h-full object-cover"
+                            />
+                            {!localStream && (
+                                <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">
+                                    <div className="text-center">
+                                        <div className="text-2xl mb-1">📷</div>
+                                        <div>No camera</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    {/* Controls Overlay */}
-                    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 z-30">
+                    {/* Controls Bar */}
+                    <div className="h-20 bg-gray-900 border-t border-gray-800 flex items-center justify-center gap-4 flex-shrink-0 z-30">
                         <Button
                             variant={isScreenSharing ? "default" : "outline"}
                             onClick={onToggleScreenShare}
@@ -134,7 +166,7 @@ export default function CallPage({
 
                 {/* Chat Area - Docked */}
                 {chatMode === 'DOCKED' && (
-                    <div className="w-80 border-l border-gray-800 bg-gray-900 h-full z-20">
+                    <div className="w-80 border-l border-gray-800 bg-gray-900 flex-shrink-0 z-20">
                         <ChatWindow
                             messages={chatMessages}
                             onSend={onSendChat}

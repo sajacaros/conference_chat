@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -20,11 +20,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [isLoading, setIsLoading] = useState(false)
-
-    console.log("[LoginPage] Render")
-    useEffect(() => {
-        console.log("[LoginPage] Mounted")
-    }, [])
 
     const handleLogin = async () => {
         if (!email || !password) return

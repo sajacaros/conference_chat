@@ -30,13 +30,18 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
     }, [onConnect, onUserList, onSignal, onDebug])
 
     const connect = useCallback(() => {
-        if (!token || !email) return
+        if (!token || !email) {
+            console.warn('[useSSE] connect called but token or email is missing')
+            return
+        }
         if (eventSourceRef.current) eventSourceRef.current.close()
 
+        console.log('[useSSE] Connecting to SSE...', email)
         try {
             const es = new EventSource(`${import.meta.env.VITE_API_URL}/sse/subscribe?token=${token}`)
 
             es.addEventListener('connect', (e: MessageEvent) => {
+                console.log('[useSSE] connect event received:', e.data)
                 onDebugRef.current?.('SSE IN (connect)', e.data)
                 onConnectRef.current?.()
             })
@@ -52,9 +57,11 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
             })
 
             es.addEventListener('signal', (e: MessageEvent) => {
+                console.log('[useSSE] signal event received:', e.data)
                 onDebugRef.current?.('SSE IN', e.data)
                 try {
                     const payload = JSON.parse(e.data)
+                    console.log('[useSSE] parsed payload:', payload)
                     onSignalRef.current?.(payload)
                 } catch (err) {
                     console.error("Failed to parse signal", err)
@@ -92,7 +99,10 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
     }, [])
 
     const sendSignal = useCallback(async (target: string, type: string, data: string | object) => {
-        if (!token || !email) return
+        if (!token || !email) {
+            console.warn('[useSSE] sendSignal called but token or email is missing')
+            return
+        }
 
         const payload = {
             sender: email,
@@ -101,10 +111,11 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
             data: typeof data === 'string' ? data : JSON.stringify(data)
         }
 
+        console.log('[useSSE] Sending signal:', payload)
         onDebug?.('SSE OUT', JSON.stringify(payload))
 
         try {
-            await fetch(`${import.meta.env.VITE_API_URL}/sse/signal`, {
+            const response = await fetch(`${import.meta.env.VITE_API_URL}/sse/signal`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -112,8 +123,9 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
                 },
                 body: JSON.stringify(payload)
             })
+            console.log('[useSSE] Signal sent, response status:', response.status)
         } catch (e) {
-            console.error(e)
+            console.error('[useSSE] Failed to send signal:', e)
         }
     }, [token, email, onDebug])
 

@@ -17,21 +17,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
-
-    @org.springframework.beans.factory.annotation.Value("${app.security.ticker}")
-    private String ticker;
+    // Injecting this bean suppresses the default user generation
+    private final org.springframework.security.core.userdetails.UserDetailsService userDetailsService;
 
     @Bean
-    public org.springframework.security.core.userdetails.UserDetailsService userDetailsService() {
-        String passwordStr = "{noop}" + com.example.sse.util.PasswordUtil.generatePassword(ticker);
-
-        org.springframework.security.core.userdetails.UserDetails user = org.springframework.security.core.userdetails.User
-                .builder()
-                .username("user")
-                .password(passwordStr)
-                .roles("USER")
-                .build();
-        return new org.springframework.security.provisioning.InMemoryUserDetailsManager(user);
+    public org.springframework.security.crypto.password.PasswordEncoder passwordEncoder() {
+        return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
     }
 
     @Bean
@@ -42,7 +33,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/login").permitAll()
+                        .requestMatchers("/auth/login", "/auth/register").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider),
                         UsernamePasswordAuthenticationFilter.class);

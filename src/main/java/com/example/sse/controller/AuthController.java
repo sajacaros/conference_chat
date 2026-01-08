@@ -1,40 +1,42 @@
 package com.example.sse.controller;
 
 import com.example.sse.dto.LoginRequest;
-import com.example.sse.jwt.JwtTokenProvider;
+import com.example.sse.service.UserService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    private final JwtTokenProvider jwtTokenProvider;
-
-    @Value("${app.security.ticker}")
-    private String ticker;
+    private final UserService userService;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest) {
-        String expectedPassword = com.example.sse.util.PasswordUtil.generatePassword(ticker);
-        if (!expectedPassword.equals(loginRequest.getPassword())) {
-            return ResponseEntity.status(401).body("Invalid password");
+        try {
+            String token = userService.login(loginRequest);
+            Map<String, String> response = Collections.singletonMap("token", token);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(401).body(e.getMessage());
         }
+    }
 
-        // Use provided userId or generate random
-        String userId = (loginRequest.getUserId() != null && !loginRequest.getUserId().isEmpty())
-                ? loginRequest.getUserId()
-                : UUID.randomUUID().toString();
-        String token = jwtTokenProvider.createToken(userId);
-
-        Map<String, String> response = Collections.singletonMap("token", token);
-        return ResponseEntity.ok(response);
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody com.example.sse.dto.RegisterRequest registerRequest) {
+        try {
+            userService.register(registerRequest);
+            return ResponseEntity.ok("User registered successfully");
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 }

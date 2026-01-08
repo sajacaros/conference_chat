@@ -37,11 +37,13 @@ const ToastOverlay = ({ toasts }) => (
 
 function App() {
   // --- View State ---
-  const [view, setView] = useState('LOGIN') // 'LOGIN', 'LIST', 'CALL'
+  const [view, setView] = useState('LOGIN') // 'LOGIN', 'REGISTER', 'LIST', 'CALL'
 
   // --- Data State ---
-  const [userId, setUserId] = useState('')
+  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [token, setToken] = useState('')
   const [targetId, setTargetId] = useState('')
   const [userList, setUserList] = useState([])
@@ -184,20 +186,20 @@ function App() {
 
   // --- Auto-Login (Restore Session) ---
   useEffect(() => {
-    const storedUserId = sessionStorage.getItem('userId')
+    const storedEmail = sessionStorage.getItem('email')
     const storedToken = sessionStorage.getItem('token')
 
-    if (storedUserId && storedToken) {
-      setUserId(storedUserId)
+    if (storedEmail && storedToken) {
+      setEmail(storedEmail)
       setToken(storedToken)
       tokenRef.current = storedToken
-      connectToSSE(storedToken, storedUserId)
+      connectToSSE(storedToken, storedEmail)
     }
   }, [])
 
 
   // --- 1. SSE Connection & Login ---
-  const connectToSSE = (authToken, myId) => {
+  const connectToSSE = (authToken, myEmail) => {
     if (eventSourceRef.current) eventSourceRef.current.close()
 
     const es = new EventSource(`${import.meta.env.VITE_API_URL}/sse/subscribe?token=${authToken}`)
@@ -205,12 +207,19 @@ function App() {
     es.addEventListener('connect', (e) => {
       addDebugLog('SSE IN (connect)', e.data)
       setView('LIST')
+      setUserId(myEmail) // Keep userId state for chat sender identification if needed, or refactor everything
+      // Actually we removed userId state, so we use email
     })
 
     es.addEventListener('user_list', (e) => {
       addDebugLog('SSE IN (user_list)', e.data)
-      const users = JSON.parse(e.data)
-      setUserList(users.filter(u => u !== myId))
+      try {
+        const users = JSON.parse(e.data)
+        // users is now [{email, username}, ...]
+        setUserList(users.filter(u => u.email !== myEmail))
+      } catch (err) {
+        console.error("Failed to parse user list", err)
+      }
     })
 
     es.addEventListener('signal', async (e) => {
@@ -222,20 +231,47 @@ function App() {
     es.onerror = (err) => {
       console.error(err)
       // Optional: If error persists (e.g. 401), we might want to clear session
-      // For now, let's just log it. If the token is invalid, the connection won't open.
     }
 
     eventSourceRef.current = es
   }
 
+  const handleRegister = async () => {
+    if (!email || !username || !password || !inviteCode) {
+      alert('Please fill all fields')
+      return
+    }
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, username, password, code: inviteCode })
+      })
+
+      if (!res.ok) {
+        const txt = await res.text()
+        alert('Registration failed: ' + txt)
+        return
+      }
+
+      alert('Registration successful! Please login.')
+      setView('LOGIN')
+      setPassword('')
+    } catch (e) {
+      console.error(e)
+      alert('Registration Error')
+    }
+  }
+
   const handleLogin = async () => {
-    if (!userId || !password) return
+    if (!email || !password) return
 
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, password })
+        body: JSON.stringify({ email, password })
       })
 
       if (!res.ok) {
@@ -248,10 +284,10 @@ function App() {
       tokenRef.current = data.token
 
       // Save session
-      sessionStorage.setItem('userId', userId)
+      sessionStorage.setItem('email', email)
       sessionStorage.setItem('token', data.token)
 
-      connectToSSE(data.token, userId)
+      connectToSSE(data.token, email)
 
     } catch (e) {
       console.error(e)
@@ -403,13 +439,13 @@ function App() {
 
   const rejectCall = () => {
     if (!incomingCall) return
-    sendSignal(incomingCall.sender, 'REJECT', '{}')
+    sendSignal(incomingCall.sender, 'REJECT', '{ }')
     setIncomingCall(null)
   }
 
   const sendSignal = async (target, type, data) => {
     if (!target) return
-    const payload = { sender: userId, target, type, data }
+    const payload = { sender: email, target, type, data }
     addDebugLog('SSE OUT', JSON.stringify(payload))
     try {
       await fetch(`${import.meta.env.VITE_API_URL}/sse/signal`, {
@@ -504,7 +540,7 @@ function App() {
   }
 
   const handleHangup = (shouldSendSignal = true) => {
-    if (shouldSendSignal && targetId) sendSignal(targetId, 'HANGUP', '{}')
+    if (shouldSendSignal && targetId) sendSignal(targetId, 'HANGUP', '{ }')
 
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close()
@@ -560,7 +596,7 @@ function App() {
     remoteStreamRef.current = null
 
     // 3. Clear state
-    setUserId('')
+    setEmail('')
     setPassword('')
     setToken('')
     setTargetId('')
@@ -572,14 +608,17 @@ function App() {
   }
 
   // --- Render Views ---
-  const filteredUsers = userList.filter(u => u.toLowerCase().includes(filterText.toLowerCase()))
+  const filteredUsers = userList.filter(u =>
+    u.email.toLowerCase().includes(filterText.toLowerCase()) ||
+    u.username.toLowerCase().includes(filterText.toLowerCase())
+  )
 
   // Reusable Header Component
   const Header = ({ title, thin }) => (
     <header className={`app-header ${thin ? 'header-thin' : ''}`}>
       <div style={{ fontWeight: 'bold' }}>{title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <span className="user-info">{userId}</span>
+        <span className="user-info">{email}</span>
         <button className="logout-btn" onClick={handleLogout}>Logout</button>
       </div>
     </header>
@@ -593,10 +632,10 @@ function App() {
         <p className="login-date">{new Date().toLocaleDateString()}</p>
         <div className="login-box">
           <input
-            type="text"
-            placeholder="Enter User ID..."
-            value={userId}
-            onChange={e => setUserId(e.target.value)}
+            type="email"
+            placeholder="Enter Email..."
+            value={email}
+            onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()}
           />
           <input
@@ -607,14 +646,57 @@ function App() {
             onKeyDown={e => e.key === 'Enter' && handleLogin()}
           />
           <button onClick={handleLogin}>Login</button>
-
+          <div style={{ marginTop: '10px', fontSize: '0.9em' }}>
+            Don't have an account? <span className="link-text" onClick={() => setView('REGISTER')} style={{ cursor: 'pointer', color: '#646cff', textDecoration: 'underline' }}>Register</span>
+          </div>
         </div>
         <ToastOverlay toasts={toasts} />
       </div>
     )
   }
 
-  // 2. LIST (Contacts)
+  // 2. REGISTER
+  if (view === 'REGISTER') {
+    return (
+      <div className="container center-view">
+        <h1>Register</h1>
+        <p className="login-date">{new Date().toLocaleDateString()}</p>
+        <div className="login-box">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Code"
+            value={inviteCode}
+            onChange={e => setInviteCode(e.target.value)}
+          />
+          <button onClick={handleRegister}>Sign Up</button>
+          <div style={{ marginTop: '10px', fontSize: '0.9em' }}>
+            Already have an account? <span className="link-text" onClick={() => setView('LOGIN')} style={{ cursor: 'pointer', color: '#646cff', textDecoration: 'underline' }}>Login</span>
+          </div>
+        </div>
+        <ToastOverlay toasts={toasts} />
+      </div>
+    )
+  }
+
+  // 3. LIST (Contacts)
   if (view === 'LIST') {
     return (
       <div className="container app-view">
@@ -630,10 +712,13 @@ function App() {
         <div className="user-list-scroll">
           {filteredUsers.length === 0 ? <p style={{ marginTop: 20, color: '#999' }}>No visible users</p> : (
             filteredUsers.map(u => (
-              <div key={u} className="user-card">
-                <div className="avatar">{u.substring(0, 2).toUpperCase()}</div>
-                <div className="user-name">{u}</div>
-                <button className="call-btn-text" onClick={() => startCall(u)}>
+              <div key={u.email} className="user-card">
+                <div className="avatar">{u.username.substring(0, 2).toUpperCase()}</div>
+                <div className="user-name">
+                  <div style={{ fontWeight: 'bold' }}>{u.username}</div>
+                  <div style={{ fontSize: '0.8em', color: '#666' }}>({u.email})</div>
+                </div>
+                <button className="call-btn-text" onClick={() => startCall(u.email)}>
                   화상채팅
                 </button>
               </div>

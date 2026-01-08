@@ -16,10 +16,10 @@ public class CallSession {
     private String sessionId;
 
     @Column(name = "caller_id", nullable = false)
-    private String callerId;
+    private Long callerId;
 
     @Column(name = "callee_id", nullable = false)
-    private String calleeId;
+    private Long calleeId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
@@ -39,7 +39,7 @@ public class CallSession {
     protected CallSession() {
     }
 
-    public CallSession(String sessionId, String callerId, String calleeId, CallStatus status) {
+    public CallSession(String sessionId, Long callerId, Long calleeId, CallStatus status) {
         this.sessionId = sessionId;
         this.callerId = callerId;
         this.calleeId = calleeId;
@@ -51,11 +51,11 @@ public class CallSession {
         return sessionId;
     }
 
-    public String getCallerId() {
+    public Long getCallerId() {
         return callerId;
     }
 
-    public String getCalleeId() {
+    public Long getCalleeId() {
         return calleeId;
     }
 

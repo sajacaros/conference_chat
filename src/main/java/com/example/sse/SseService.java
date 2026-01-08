@@ -1,13 +1,19 @@
 package com.example.sse;
 
+import com.example.sse.domain.User;
+import com.example.sse.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import com.example.sse.repository.CallSessionRepository;
 import com.example.sse.domain.CallSession;
@@ -19,8 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class SseService {
 
     private final CallSessionRepository callSessionRepository;
+    private final UserRepository userRepository;
 
-    // Store active connections: userId -> SseEmitter
+    // Store active connections: userId (email) -> SseEmitter
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
     public SseEmitter subscribe(String userId) {
@@ -71,15 +78,17 @@ public class SseService {
         }
     }
 
-    private void endActiveSessions(String userId) {
+    private void endActiveSessions(String userEmail) {
+        User user = userRepository.findByEmail(userEmail).orElse(null);
+        if (user == null)
+            return;
+        Long userId = user.getId();
+
         // Close sessions where user is caller
         List<CallSession> activeAsCaller = callSessionRepository.findByCallerIdAndStatus(userId, CallStatus.CONNECTED);
         activeAsCaller.addAll(callSessionRepository.findByCallerIdAndStatus(userId, CallStatus.TRYING));
 
         for (CallSession session : activeAsCaller) {
-            // If explicit logout/cleanup, maybe we can say CANCELLED or ENDED depending on
-            // state?
-            // Use ENDED for simplicity or determine based on current state
             session.end(CallStatus.ENDED);
             callSessionRepository.save(session);
         }
@@ -122,13 +131,33 @@ public class SseService {
 
     // Broadcast current user list to all connected clients
     private void broadcastUserList() {
-        // Simple list of user IDs
-        String userListJson = "[" + String.join(",", emitters.keySet().stream().map(s -> "\"" + s + "\"").toList())
-                + "]";
+        if (emitters.isEmpty())
+            return;
 
+        Set<String> activeEmails = emitters.keySet();
+        List<User> users = userRepository.findByEmailIn(activeEmails);
+
+        // Convert to list of simple DTOs or Maps to avoid leaking everything
+        List<Map<String, String>> userList = users.stream()
+                .map(u -> {
+                    Map<String, String> map = new HashMap<>();
+                    map.put("email", u.getEmail());
+                    map.put("username", u.getUsername());
+                    return map;
+                })
+                .collect(Collectors.toList());
+
+        String userListJson;
+        try {
+            userListJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(userList);
+        } catch (IOException e) {
+            userListJson = "[]";
+        }
+
+        final String payload = userListJson; // effing effective final ref
         emitters.forEach((id, emitter) -> {
             try {
-                emitter.send(SseEmitter.event().name("user_list").data(userListJson));
+                emitter.send(SseEmitter.event().name("user_list").data(payload));
             } catch (IOException e) {
                 // Should be handled by onError/onTimeout, but safe to ignore here
             }
@@ -137,11 +166,18 @@ public class SseService {
 
     // Send a message (signal) to a specific target user
     @Transactional
-    public void sendSignal(String senderId, String targetId, String type, String data) {
-        SseEmitter emitter = emitters.get(targetId);
+    public void sendSignal(String senderEmail, String targetEmail, String type, String data) {
+        SseEmitter emitter = emitters.get(targetEmail);
 
         // --- CDC Logic Start ---
         try {
+            User sender = userRepository.findByEmail(senderEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Sender not found"));
+            User target = userRepository.findByEmail(targetEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Target not found"));
+            Long senderId = sender.getId();
+            Long targetId = target.getId();
+
             if ("offer".equalsIgnoreCase(type)) {
 
                 // BUSY Check
@@ -172,6 +208,12 @@ public class SseService {
             } else if ("answer".equalsIgnoreCase(type)) {
                 // Find the session where 'targetId' (original caller) called 'senderId'
                 // (original callee)
+                // Note: targetEmail is the original caller (who OFFERed), senderEmail is the
+                // ANSWERer (callee)
+                // Wait, logic check:
+                // Signal "answer" is sent FROM senderEmail TO targetEmail.
+                // So senderEmail is the Callee answering, targetEmail is the Caller.
+                // findTopByCallerIdAndCalleeId -> Caller=targetId, Callee=senderId
                 callSessionRepository.findTopByCallerIdAndCalleeIdOrderByCreatedAtDesc(targetId, senderId)
                         .ifPresent(session -> {
                             if (CallStatus.TRYING.equals(session.getStatus())) {
@@ -227,18 +269,19 @@ public class SseService {
             try {
                 // Determine event name based on signal type (OFFER, ANSWER, CANDIDATE)
                 // Or just use a generic "signal" event and include type in the data
-                SsePayload payload = new SsePayload(senderId, type, data);
-                System.out.println("Processing payload for " + targetId + " -> ready to send.");
+                SsePayload payload = new SsePayload(senderEmail, type, data);
+                System.out.println("Processing payload for " + targetEmail + " -> ready to send.");
                 emitter.send(SseEmitter.event().name("signal").data(payload));
 
-                System.out.println("Signal sent from " + senderId + " to " + targetId + " [" + type + "]");
+                System.out.println("Signal sent from " + senderEmail + " to " + targetEmail + " [" + type + "]");
             } catch (IOException e) {
-                emitters.remove(targetId);
+                emitters.remove(targetEmail);
                 System.out.println(
-                        "Failed to send signal to " + targetId + " (User disconnected or blocked): " + e.getMessage());
+                        "Failed to send signal to " + targetEmail + " (User disconnected or blocked): "
+                                + e.getMessage());
             }
         } else {
-            System.out.println("Target user not found: " + targetId);
+            System.out.println("Target user not found: " + targetEmail);
         }
     }
 

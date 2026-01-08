@@ -1,7 +1,7 @@
 CREATE TABLE call_session (
     session_id VARCHAR(255) PRIMARY KEY,
-    caller_id VARCHAR(255) NOT NULL,
-    callee_id VARCHAR(255) NOT NULL,
+    caller_id BIGINT NOT NULL REFERENCES users(id),
+    callee_id BIGINT NOT NULL REFERENCES users(id),
     status VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
     connected_at TIMESTAMP WITHOUT TIME ZONE,

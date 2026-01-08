@@ -14,7 +14,7 @@ import { SseLogPanel, DebugLogEntry } from './components/debug/SseLogPanel'
 function RedirectToLogin() {
     useEffect(() => {
         const t = setTimeout(() => {
-            window.location.replace('/login')
+            window.location.replace(import.meta.env.BASE_URL + 'login')
         }, 100)
         return () => clearTimeout(t)
     }, [])
@@ -153,7 +153,7 @@ function App() {
         setIncomingCall(null)
 
         // Navigate after state is cleared
-        window.location.href = '/'
+        window.location.href = import.meta.env.BASE_URL
     }, [clearMessages])
 
     const handleLocalStream = useCallback((s: MediaStream) => setLocalStream(s), [])
@@ -264,7 +264,7 @@ function App() {
             if (!res.ok) throw new Error('Login failed')
             const data = await res.json()
             login(email, data.token)
-            window.location.replace('/')
+            window.location.replace(import.meta.env.BASE_URL)
         } catch (e) {
             console.error('[Login] Failed:', e)
             throw e as Error
@@ -273,13 +273,13 @@ function App() {
 
     const handleLogout = () => {
         logout()
-        window.location.replace('/login')
+        window.location.replace(import.meta.env.BASE_URL + 'login')
     }
 
     const handleStartCall = (target: string) => {
         sessionStorage.setItem('call_target', target)
         sessionStorage.setItem('call_initiator', 'true')
-        window.location.href = '/call'
+        window.location.href = import.meta.env.BASE_URL + 'call'
     }
 
     const handleAcceptCall = () => {
@@ -287,7 +287,7 @@ function App() {
         sessionStorage.setItem('call_target', incomingCall.sender)
         sessionStorage.setItem('call_initiator', 'false')
         sessionStorage.setItem('call_offer', JSON.stringify(incomingCall.data))
-        window.location.href = '/call'
+        window.location.href = import.meta.env.BASE_URL + 'call'
     }
 
     const handleRejectCall = () => {

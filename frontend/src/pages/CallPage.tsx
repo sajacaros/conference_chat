@@ -253,57 +253,6 @@ export default function CallPage({
                             </div>
                         )}
 
-                        {/* Local Video (PIP) */}
-                        <div
-                            data-pip-container
-                            className="absolute bg-black rounded-lg overflow-hidden border border-gray-700 shadow-xl z-20"
-                            style={pipPosition
-                                ? { left: pipPosition.x, top: pipPosition.y, width: pipSize.width, height: pipSize.height }
-                                : { bottom: 16, right: 16, width: pipSize.width, height: pipSize.height }
-                            }
-                        >
-                            {/* Drag handle */}
-                            <div
-                                className="absolute top-0 left-0 right-0 h-6 cursor-move z-30 bg-gradient-to-b from-black/50 to-transparent"
-                                onMouseDown={handlePipMouseDown}
-                            />
-                            <video
-                                ref={localVideoRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                className="w-full h-full object-cover"
-                            />
-                            {!localStream && (
-                                <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">
-                                    <div className="text-center">
-                                        <div className="text-2xl mb-1">📷</div>
-                                        <div>No camera</div>
-                                    </div>
-                                </div>
-                            )}
-                            {/* Resize handles */}
-                            <div
-                                className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize hover:bg-blue-500/30"
-                                onMouseDown={(e) => handlePipResizeStart(e, 's')}
-                            />
-                            <div
-                                className="absolute left-0 top-6 bottom-2 w-1 cursor-w-resize hover:bg-blue-500/30"
-                                onMouseDown={(e) => handlePipResizeStart(e, 'w')}
-                            />
-                            <div
-                                className="absolute right-0 top-6 bottom-2 w-1 cursor-e-resize hover:bg-blue-500/30"
-                                onMouseDown={(e) => handlePipResizeStart(e, 'e')}
-                            />
-                            <div
-                                className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize hover:bg-blue-500/50"
-                                onMouseDown={(e) => handlePipResizeStart(e, 'sw')}
-                            />
-                            <div
-                                className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize hover:bg-blue-500/50"
-                                onMouseDown={(e) => handlePipResizeStart(e, 'se')}
-                            />
-                        </div>
                     </div>
 
                     {/* Controls Bar */}
@@ -401,6 +350,58 @@ export default function CallPage({
                     />
                 </div>
             )}
+
+            {/* Local Video (PIP) - Top level for z-index over docked chat */}
+            <div
+                data-pip-container
+                className="absolute bg-black rounded-lg overflow-hidden border border-gray-700 shadow-xl z-30"
+                style={pipPosition
+                    ? { left: pipPosition.x, top: pipPosition.y, width: pipSize.width, height: pipSize.height }
+                    : { bottom: 96, right: chatMode === 'DOCKED' ? 336 : 16, width: pipSize.width, height: pipSize.height }
+                }
+            >
+                {/* Drag handle */}
+                <div
+                    className="absolute top-0 left-0 right-0 h-6 cursor-move z-30 bg-gradient-to-b from-black/50 to-transparent"
+                    onMouseDown={handlePipMouseDown}
+                />
+                <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                />
+                {!localStream && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">
+                        <div className="text-center">
+                            <div className="text-2xl mb-1">📷</div>
+                            <div>No camera</div>
+                        </div>
+                    </div>
+                )}
+                {/* Resize handles */}
+                <div
+                    className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize hover:bg-blue-500/30"
+                    onMouseDown={(e) => handlePipResizeStart(e, 's')}
+                />
+                <div
+                    className="absolute left-0 top-6 bottom-2 w-1 cursor-w-resize hover:bg-blue-500/30"
+                    onMouseDown={(e) => handlePipResizeStart(e, 'w')}
+                />
+                <div
+                    className="absolute right-0 top-6 bottom-2 w-1 cursor-e-resize hover:bg-blue-500/30"
+                    onMouseDown={(e) => handlePipResizeStart(e, 'e')}
+                />
+                <div
+                    className="absolute bottom-0 left-0 w-3 h-3 cursor-sw-resize hover:bg-blue-500/50"
+                    onMouseDown={(e) => handlePipResizeStart(e, 'sw')}
+                />
+                <div
+                    className="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize hover:bg-blue-500/50"
+                    onMouseDown={(e) => handlePipResizeStart(e, 'se')}
+                />
+            </div>
         </div>
     )
 }

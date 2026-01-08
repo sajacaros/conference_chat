@@ -17,4 +17,5 @@ spring:
       hibernate:
         format_sql: true
         default_schema: conference_chat
+    open-in-view: false
 

@@ -135,9 +135,10 @@ public class SseService {
             return;
 
         Set<String> activeEmails = emitters.keySet();
+        // Database call finishes here, connection returned to pool (OSIV=false)
         List<User> users = userRepository.findByEmailIn(activeEmails);
 
-        // Convert to list of simple DTOs or Maps to avoid leaking everything
+        // Convert to list of simple DTOs or Maps
         List<Map<String, String>> userList = users.stream()
                 .map(u -> {
                     Map<String, String> map = new HashMap<>();
@@ -154,12 +155,17 @@ public class SseService {
             userListJson = "[]";
         }
 
-        final String payload = userListJson; // effing effective final ref
+        final String payload = userListJson;
+
+        // Sending must happen OUTSIDE the transaction ideally, but for simplicity here
+        // we keep it.
+        // Since we already materialized the DTOs (Json string), we are safe from
+        // LazyLoading.
         emitters.forEach((id, emitter) -> {
             try {
                 emitter.send(SseEmitter.event().name("user_list").data(payload));
             } catch (IOException e) {
-                // Should be handled by onError/onTimeout, but safe to ignore here
+                // Should be handled by onError/onTimeout
             }
         });
     }

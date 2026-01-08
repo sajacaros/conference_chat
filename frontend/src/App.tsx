@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import UserListPage from './pages/UserListPage'
 import CallPage from './pages/CallPage'
+import { SseLogPanel, DebugLogEntry } from './components/debug/SseLogPanel'
 
 function RedirectToLogin() {
     useEffect(() => {
@@ -34,6 +35,26 @@ function App() {
     const [userList, setUserList] = useState<any[]>([])
     const [incomingCall, setIncomingCall] = useState<{ sender: string; data: any } | null>(null)
     const [callTarget, setCallTarget] = useState('')
+
+    // Debug log state
+    const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([])
+    const [isLogPanelOpen, setIsLogPanelOpen] = useState(false)
+    const logIdRef = useRef(0)
+
+    const addDebugLog = useCallback((type: string, message: string) => {
+        const now = new Date()
+        const timestamp = now.toLocaleTimeString('ko-KR', { hour12: false }) + '.' + now.getMilliseconds().toString().padStart(3, '0')
+        setDebugLogs(prev => [...prev.slice(-200), { // Keep last 200 logs
+            id: logIdRef.current++,
+            timestamp,
+            type,
+            message
+        }])
+    }, [])
+
+    const clearDebugLogs = useCallback(() => {
+        setDebugLogs([])
+    }, [])
 
     // Stream State
     const [localStream, setLocalStream] = useState<MediaStream | null>(null)
@@ -106,7 +127,8 @@ function App() {
         email: user?.email,
         onUserList: handleUserList,
         onSignal: handleSSESignal,
-        onConnect: handleSSEConnect
+        onConnect: handleSSEConnect,
+        onDebug: addDebugLog
     })
 
     const [isCallInitiator, setIsCallInitiator] = useState(false)
@@ -305,40 +327,52 @@ function App() {
     }
 
     return (
-        <Routes>
-            <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} />} />
-            <Route path="/register" element={<RegisterPage />} />
+        <>
+            <Routes>
+                <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-            <Route path="/" element={
-                user ? (
-                    <UserListPage
-                        email={user.email}
-                        users={userList}
-                        onLogout={handleLogout}
-                        onCall={startCallWrapped}
-                        incomingCall={incomingCall}
-                        onAcceptCall={acceptCallWrapped}
-                        onRejectCall={handleRejectCall}
-                    />
-                ) : <RedirectToLogin />
-            } />
+                <Route path="/" element={
+                    user ? (
+                        <UserListPage
+                            email={user.email}
+                            users={userList}
+                            onLogout={handleLogout}
+                            onCall={startCallWrapped}
+                            incomingCall={incomingCall}
+                            onAcceptCall={acceptCallWrapped}
+                            onRejectCall={handleRejectCall}
+                        />
+                    ) : <RedirectToLogin />
+                } />
 
-            <Route path="/call" element={
-                user ? (
-                    <CallPage
-                        targetId={callTarget}
-                        email={user.email}
-                        localStream={localStream}
-                        remoteStream={remoteStream}
-                        onHangup={hangupWrapped}
-                        isScreenSharing={isScreenSharing}
-                        onToggleScreenShare={toggleScreenShare}
-                        chatMessages={messages}
-                        onSendChat={sendChatWrapped}
-                    />
-                ) : <Navigate to="/login" replace />
-            } />
-        </Routes>
+                <Route path="/call" element={
+                    user ? (
+                        <CallPage
+                            targetId={callTarget}
+                            email={user.email}
+                            localStream={localStream}
+                            remoteStream={remoteStream}
+                            onHangup={hangupWrapped}
+                            isScreenSharing={isScreenSharing}
+                            onToggleScreenShare={toggleScreenShare}
+                            chatMessages={messages}
+                            onSendChat={sendChatWrapped}
+                        />
+                    ) : <Navigate to="/login" replace />
+                } />
+            </Routes>
+
+            {/* SSE/WebRTC Debug Log Panel - shown when logged in */}
+            {user && (
+                <SseLogPanel
+                    logs={debugLogs}
+                    isOpen={isLogPanelOpen}
+                    onToggle={() => setIsLogPanelOpen(prev => !prev)}
+                    onClear={clearDebugLogs}
+                />
+            )}
+        </>
     )
 }
 

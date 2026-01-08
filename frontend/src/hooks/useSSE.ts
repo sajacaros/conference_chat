@@ -112,7 +112,6 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
         }
 
         console.log('[useSSE] Sending signal:', payload)
-        onDebug?.('SSE OUT', JSON.stringify(payload))
 
         try {
             const response = await fetch(`${import.meta.env.VITE_API_URL}/sse/signal`, {
@@ -127,7 +126,7 @@ export function useSSE({ token, email, onConnect, onUserList, onSignal, onDebug 
         } catch (e) {
             console.error('[useSSE] Failed to send signal:', e)
         }
-    }, [token, email, onDebug])
+    }, [token, email])
 
     return { connect, disconnect, sendSignal }
 }

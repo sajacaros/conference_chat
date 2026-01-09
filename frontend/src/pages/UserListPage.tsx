@@ -18,6 +18,7 @@ interface UserListPageProps {
     incomingCall: { sender: string; data: any } | null
     onAcceptCall: () => void
     onRejectCall: () => void
+    onHistory?: () => void
 }
 
 export default function UserListPage({
@@ -27,7 +28,8 @@ export default function UserListPage({
     onCall,
     incomingCall,
     onAcceptCall,
-    onRejectCall
+    onRejectCall,
+    onHistory
 }: UserListPageProps) {
     const [filter, setFilter] = useState('')
 
@@ -46,12 +48,18 @@ export default function UserListPage({
             <Header title="Contacts" email={email} onLogout={onLogout} />
 
             <div className="p-4 flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full">
-                <div className="mb-4">
+                <div className="mb-4 flex gap-2">
                     <Input
                         placeholder="Search friends..."
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
+                        className="flex-1"
                     />
+                    {onHistory && (
+                        <Button variant="outline" onClick={onHistory}>
+                            History
+                        </Button>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pb-4">

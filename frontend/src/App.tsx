@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import UserListPage from './pages/UserListPage'
 import CallPage from './pages/CallPage'
+import ChatHistoryPage from './pages/ChatHistoryPage'
 import { SseLogPanel, DebugLogEntry } from './components/debug/SseLogPanel'
 
 function RedirectToLogin() {
@@ -31,7 +32,7 @@ function App() {
 
     // -- Hooks --
     const { user, loading: authLoading, login, logout } = useAuth()
-    const { messages, addMessage, clearMessages } = useChat()
+    const { messages, addMessage, clearMessages, loadHistory } = useChat()
     const [userList, setUserList] = useState<any[]>([])
     const [incomingCall, setIncomingCall] = useState<{ sender: string; data: any } | null>(null)
     const [callTarget, setCallTarget] = useState('')
@@ -216,6 +217,13 @@ function App() {
         }
     }, [user, connect, disconnect])
 
+    // -- Load Chat History when call target is set --
+    useEffect(() => {
+        if (callTarget && user?.token && user?.email) {
+            loadHistory(user.token, callTarget, user.email)
+        }
+    }, [callTarget, user?.token, user?.email, loadHistory])
+
     // -- Auto-Start Call Logic --
     useEffect(() => {
         if (location.pathname !== '/call') {
@@ -363,6 +371,18 @@ function App() {
                             incomingCall={incomingCall}
                             onAcceptCall={acceptCallWrapped}
                             onRejectCall={handleRejectCall}
+                            onHistory={() => navigate('/history')}
+                        />
+                    ) : <RedirectToLogin />
+                } />
+
+                <Route path="/history" element={
+                    user ? (
+                        <ChatHistoryPage
+                            email={user.email}
+                            token={user.token}
+                            onBack={() => navigate('/')}
+                            onLogout={handleLogout}
                         />
                     ) : <RedirectToLogin />
                 } />

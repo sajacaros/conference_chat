@@ -2,6 +2,7 @@ package com.example.sse;
 
 import com.example.sse.domain.User;
 import com.example.sse.repository.UserRepository;
+import com.example.sse.service.ChatService;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,6 +27,7 @@ public class SseService {
 
     private final CallSessionRepository callSessionRepository;
     private final UserRepository userRepository;
+    private final ChatService chatService;
 
     // Store active connections: userId (email) -> SseEmitter
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
@@ -270,6 +272,18 @@ public class SseService {
             // Don't fail the signal sending
         }
         // --- CDC Logic End ---
+
+        // --- Chat Save Logic ---
+        if ("CHAT".equalsIgnoreCase(type)) {
+            try {
+                chatService.saveMessage(senderEmail, targetEmail, data);
+                System.out.println("Chat message saved: " + senderEmail + " -> " + targetEmail);
+            } catch (Exception e) {
+                System.err.println("Chat save error: " + e.getMessage());
+                // Don't fail the signal sending
+            }
+        }
+        // --- Chat Save Logic End ---
 
         if (emitter != null) {
             try {

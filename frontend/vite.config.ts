@@ -6,9 +6,9 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
     plugins: [react()],
-    base: command === 'build' ? '/conference/' : '/',
+    base: command === 'build' || mode === 'production' ? '/conference/' : '/',
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),

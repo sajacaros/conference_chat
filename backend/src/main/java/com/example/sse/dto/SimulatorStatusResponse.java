@@ -12,6 +12,7 @@ import java.util.Map;
 @NoArgsConstructor
 public class SimulatorStatusResponse {
     private boolean running;
+    private Long historyId;
     private int totalCallsGenerated;
     private int totalMessagesGenerated;
     private Map<String, Integer> callsByStatus;

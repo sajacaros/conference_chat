@@ -3,11 +3,13 @@ package com.example.sse.service;
 import com.example.sse.domain.CallSession;
 import com.example.sse.domain.CallStatus;
 import com.example.sse.domain.ChatMessage;
+import com.example.sse.domain.SimulatorHistory;
 import com.example.sse.domain.User;
 import com.example.sse.dto.SimulatorConfigRequest;
 import com.example.sse.dto.SimulatorStatusResponse;
 import com.example.sse.repository.CallSessionRepository;
 import com.example.sse.repository.ChatMessageRepository;
+import com.example.sse.repository.SimulatorHistoryRepository;
 import com.example.sse.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,12 +31,14 @@ public class SimulatorService {
     private final CallSessionRepository callSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final SimulatorHistoryRepository historyRepository;
 
     // Simulation state
     private volatile boolean running = false;
     private SimulatorConfigRequest currentConfig;
     private ScheduledExecutorService scheduler;
     private List<Long> userIds = new ArrayList<>();
+    private volatile Long currentHistoryId;
 
     // Statistics
     private final AtomicInteger totalCalls = new AtomicInteger(0);
@@ -58,10 +62,12 @@ public class SimulatorService {
 
     public SimulatorService(CallSessionRepository callSessionRepository,
                            ChatMessageRepository chatMessageRepository,
-                           UserRepository userRepository) {
+                           UserRepository userRepository,
+                           SimulatorHistoryRepository historyRepository) {
         this.callSessionRepository = callSessionRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
+        this.historyRepository = historyRepository;
 
         // Initialize stats
         for (CallStatus status : CallStatus.values()) {
@@ -69,9 +75,15 @@ public class SimulatorService {
         }
     }
 
+    @Transactional
     public synchronized void start(SimulatorConfigRequest config) {
         if (running) {
             throw new IllegalStateException("Simulation already running");
+        }
+
+        // Check if there's already a running simulation in DB
+        if (historyRepository.existsByRunningTrue()) {
+            throw new IllegalStateException("Another simulation is already running");
         }
 
         validateConfig(config);
@@ -85,6 +97,20 @@ public class SimulatorService {
         if (users.size() < 2) {
             throw new IllegalStateException("Not enough virtual users found. Required: 2, Found: " + users.size());
         }
+
+        // Create history record
+        SimulatorHistory history = new SimulatorHistory(
+                config.getUserCount(),
+                config.getCallsPerMinute(),
+                config.getChatMessagesPerCall(),
+                config.getMinCallDurationSeconds(),
+                config.getMaxCallDurationSeconds(),
+                config.getConnectedPercent(),
+                config.getRejectedPercent(),
+                config.getCancelledPercent()
+        );
+        history = historyRepository.save(history);
+        this.currentHistoryId = history.getId();
 
         this.userIds = users.stream().map(User::getId).collect(Collectors.toList());
         this.currentConfig = config;
@@ -110,9 +136,11 @@ public class SimulatorService {
                 TimeUnit.MILLISECONDS
         );
 
-        log.info("Simulator started with {} users, {} calls/min", userIds.size(), config.getCallsPerMinute());
+        log.info("Simulator started with {} users, {} calls/min, historyId: {}",
+                userIds.size(), config.getCallsPerMinute(), currentHistoryId);
     }
 
+    @Transactional
     public synchronized void stop() {
         if (!running) {
             return;
@@ -132,6 +160,25 @@ public class SimulatorService {
         }
         // End all active simulated calls
         endAllActiveCalls();
+
+        // Update history record
+        if (currentHistoryId != null) {
+            historyRepository.findById(currentHistoryId).ifPresent(history -> {
+                history.updateStats(
+                        totalCalls.get(),
+                        totalMessages.get(),
+                        callsByStatus.get(CallStatus.CONNECTED).get(),
+                        callsByStatus.get(CallStatus.ENDED).get(),
+                        callsByStatus.get(CallStatus.REJECTED).get(),
+                        callsByStatus.get(CallStatus.CANCELLED).get(),
+                        callsByStatus.get(CallStatus.BUSY).get()
+                );
+                history.stop();
+                historyRepository.save(history);
+            });
+            currentHistoryId = null;
+        }
+
         log.info("Simulator stopped. Total calls: {}, Total messages: {}", totalCalls.get(), totalMessages.get());
     }
 
@@ -149,7 +196,16 @@ public class SimulatorService {
         );
         response.setStartedAt(startedAt);
         response.setLastCallAt(lastCallAt);
+        response.setHistoryId(currentHistoryId);
         return response;
+    }
+
+    public List<SimulatorHistory> getHistoryList() {
+        return historyRepository.findAllByOrderByStartedAtDesc();
+    }
+
+    public Optional<SimulatorHistory> getHistoryById(Long id) {
+        return historyRepository.findById(id);
     }
 
     private void generateCallSafe() {

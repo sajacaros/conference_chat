@@ -13,11 +13,30 @@ export interface SimulatorConfig {
 
 export interface SimulatorStatus {
   running: boolean;
+  historyId: number | null;
   totalCallsGenerated: number;
   totalMessagesGenerated: number;
   callsByStatus: Record<string, number>;
   startedAt: string | null;
   lastCallAt: string | null;
+}
+
+export interface SimulatorHistory {
+  id: number;
+  userCount: number;
+  callsPerMinute: number;
+  chatMessagesPerCall: number;
+  minCallDurationSeconds: number;
+  maxCallDurationSeconds: number;
+  connectedPercent: number;
+  rejectedPercent: number;
+  cancelledPercent: number;
+  totalCallsGenerated: number;
+  totalMessagesGenerated: number;
+  callsByStatus: Record<string, number>;
+  running: boolean;
+  startedAt: string;
+  stoppedAt: string | null;
 }
 
 export async function startSimulation(token: string, config: SimulatorConfig): Promise<void> {
@@ -48,5 +67,21 @@ export async function getSimulatorStatus(token: string): Promise<SimulatorStatus
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) throw new Error('Failed to get status');
+  return res.json();
+}
+
+export async function getSimulatorHistoryList(token: string): Promise<SimulatorHistory[]> {
+  const res = await fetch(`${API_URL}/simulator/history`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to get history');
+  return res.json();
+}
+
+export async function getSimulatorHistoryById(token: string, id: number): Promise<SimulatorHistory> {
+  const res = await fetch(`${API_URL}/simulator/history/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to get history');
   return res.json();
 }

@@ -8,6 +8,7 @@ backend/build
 *.class
 *.log
 *.jar
+!**/gradle-wrapper.jar
 *.war
 
 # IDE

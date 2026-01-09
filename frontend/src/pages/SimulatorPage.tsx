@@ -183,45 +183,52 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
                                 </div>
                             ) : (
                                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                                    {historyList.map(history => (
-                                        <div
-                                            key={history.id}
-                                            onClick={() => handleSelectHistory(history)}
-                                            className={`p-3 rounded cursor-pointer transition-colors ${
-                                                selectedHistory?.id === history.id
-                                                    ? 'bg-blue-900 border border-blue-600'
-                                                    : 'bg-gray-800 hover:bg-gray-700'
-                                            }`}
-                                        >
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <span className="text-white text-sm font-medium">
-                                                        #{history.id}
-                                                    </span>
-                                                    <span className="text-gray-400 text-sm ml-2">
-                                                        {history.userCount} users, {history.callsPerMinute}/min
-                                                    </span>
-                                                    <div className="text-xs text-gray-500">
-                                                        {formatDateTime(history.startedAt)}
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="text-right">
-                                                        <div className="text-sm text-white">{history.totalCallsGenerated} calls</div>
-                                                        <div className="text-xs text-gray-400">{history.totalMessagesGenerated} msgs</div>
-                                                    </div>
-                                                    {history.running ? (
-                                                        <span className="text-xs bg-green-600 px-2 py-1 rounded flex items-center gap-1">
-                                                            <span className="inline-block w-2 h-2 bg-white rounded-full animate-pulse" />
-                                                            Running
+                                    {historyList.map(history => {
+                                        // For running simulation, use real-time status data
+                                        const isRunning = history.running && status?.running
+                                        const totalCalls = isRunning ? status.totalCallsGenerated : history.totalCallsGenerated
+                                        const totalMessages = isRunning ? status.totalMessagesGenerated : history.totalMessagesGenerated
+
+                                        return (
+                                            <div
+                                                key={history.id}
+                                                onClick={() => handleSelectHistory(history)}
+                                                className={`p-3 rounded cursor-pointer transition-colors ${
+                                                    selectedHistory?.id === history.id
+                                                        ? 'bg-blue-900 border border-blue-600'
+                                                        : 'bg-gray-800 hover:bg-gray-700'
+                                                }`}
+                                            >
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <span className="text-white text-sm font-medium">
+                                                            #{history.id}
                                                         </span>
-                                                    ) : (
-                                                        <span className="text-xs bg-gray-600 px-2 py-1 rounded">Stopped</span>
-                                                    )}
+                                                        <span className="text-gray-400 text-sm ml-2">
+                                                            {history.userCount} users, {history.callsPerMinute}/min
+                                                        </span>
+                                                        <div className="text-xs text-gray-500">
+                                                            {formatDateTime(history.startedAt)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="text-right">
+                                                            <div className="text-sm text-white">{totalCalls} calls</div>
+                                                            <div className="text-xs text-gray-400">{totalMessages} msgs</div>
+                                                        </div>
+                                                        {history.running ? (
+                                                            <span className="text-xs bg-green-600 px-2 py-1 rounded flex items-center gap-1">
+                                                                <span className="inline-block w-2 h-2 bg-white rounded-full animate-pulse" />
+                                                                Running
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">Stopped</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
                             )}
                         </CardContent>
@@ -239,36 +246,46 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {/* Stats */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <div className="text-sm text-gray-500">Status</div>
-                                        <div className={selectedHistory.running ? 'text-green-400 font-medium' : 'text-gray-400'}>
-                                            {selectedHistory.running ? 'Running' : 'Stopped'}
+                                {/* Stats - use real-time status data when running */}
+                                {(() => {
+                                    // For running simulation, use real-time status data
+                                    const isRunning = selectedHistory.running && status?.running
+                                    const totalCalls = isRunning ? status.totalCallsGenerated : selectedHistory.totalCallsGenerated
+                                    const totalMessages = isRunning ? status.totalMessagesGenerated : selectedHistory.totalMessagesGenerated
+                                    const callsByStatus = isRunning ? status.callsByStatus : selectedHistory.callsByStatus
+
+                                    return (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div>
+                                                <div className="text-sm text-gray-500">Status</div>
+                                                <div className={selectedHistory.running ? 'text-green-400 font-medium' : 'text-gray-400'}>
+                                                    {selectedHistory.running ? 'Running' : 'Stopped'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm text-gray-500">Total Calls</div>
+                                                <div className="text-xl font-bold text-white">{totalCalls}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm text-gray-500">Total Messages</div>
+                                                <div className="text-xl font-bold text-white">{totalMessages}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm text-gray-500">By Status</div>
+                                                <div className="text-xs space-y-1">
+                                                    {Object.entries(callsByStatus || {})
+                                                        .filter(([, v]) => v > 0)
+                                                        .map(([k, v]) => (
+                                                            <div key={k} className="flex justify-between">
+                                                                <span className={getStatusColor(k)}>{k}</span>
+                                                                <span className="text-white">{v}</span>
+                                                            </div>
+                                                        ))}
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500">Total Calls</div>
-                                        <div className="text-xl font-bold text-white">{selectedHistory.totalCallsGenerated}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500">Total Messages</div>
-                                        <div className="text-xl font-bold text-white">{selectedHistory.totalMessagesGenerated}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500">By Status</div>
-                                        <div className="text-xs space-y-1">
-                                            {Object.entries(selectedHistory.callsByStatus || {})
-                                                .filter(([, v]) => v > 0)
-                                                .map(([k, v]) => (
-                                                    <div key={k} className="flex justify-between">
-                                                        <span className={getStatusColor(k)}>{k}</span>
-                                                        <span className="text-white">{v}</span>
-                                                    </div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                </div>
+                                    )
+                                })()}
 
                                 {/* Configuration */}
                                 <div className="pt-4 border-t border-gray-700">

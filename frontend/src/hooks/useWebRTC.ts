@@ -169,6 +169,7 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             cameraStreamRef.current = null
         }
         remoteStreamRef.current = null
+        pendingCandidates.current = []
 
         // Create new peer connection
         const pc = new RTCPeerConnection({
@@ -219,6 +220,7 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             cameraStreamRef.current = null
         }
         remoteStreamRef.current = null
+        pendingCandidates.current = []
 
         // Create new peer connection
         const pc = new RTCPeerConnection({
@@ -322,6 +324,22 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             return
         }
 
+        // CANDIDATE는 PC가 없어도 버퍼링
+        if (type === 'CANDIDATE') {
+            const candidate = JSON.parse(data)
+            const c = new RTCIceCandidate(candidate)
+            onDebug?.('ICE IN', `${c.type || 'unknown'} | ${c.protocol || ''} | ${c.address || ''}`)
+
+            const pc = peerConnectionRef.current
+            if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(c)
+            } else {
+                pendingCandidates.current.push(candidate)
+                onDebug?.('ICE IN', `queued (${pendingCandidates.current.length})${!pc ? ' - no PC yet' : ''}`)
+            }
+            return
+        }
+
         const pc = peerConnectionRef.current
         if (!pc) {
             onDebug?.('ERROR', `No PC for signal: ${type}`)
@@ -333,16 +351,6 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             const desc = new RTCSessionDescription(JSON.parse(data))
             await pc.setRemoteDescription(desc)
             await processPendingCandidates()
-        } else if (type === 'CANDIDATE') {
-            const candidate = JSON.parse(data)
-            const c = new RTCIceCandidate(candidate)
-            onDebug?.('ICE IN', `${c.type || 'unknown'} | ${c.protocol || ''} | ${c.address || ''}`)
-            if (pc.remoteDescription && pc.remoteDescription.type) {
-                await pc.addIceCandidate(c)
-            } else {
-                pendingCandidates.current.push(candidate)
-                onDebug?.('ICE IN', `queued (${pendingCandidates.current.length})`)
-            }
         }
     }, [hangup, processPendingCandidates, onDebug])
 

@@ -1,5 +1,6 @@
 # Java / Spring
 /build
+backend/build
 /.gradle
 .gradle
 /out

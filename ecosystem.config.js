@@ -5,9 +5,8 @@ module.exports = {
     {
       name: 'backend',
       cwd: `${BASE_PATH}/backend`,
-      script: `${BASE_PATH}/backend/gradlew`,
-      args: 'bootRun --args="--spring.config.additional-location=file:../../secret.yml"',
-      interpreter: '/bin/bash',
+      script: 'java',
+      args: `-jar ${BASE_PATH}/backend/build/libs/backend-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:/home/sajacaros/workspace/conference/secret.yml`,
       watch: false,
       autorestart: true,
       max_restarts: 5,

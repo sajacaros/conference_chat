@@ -8,8 +8,7 @@ module.exports = {
       script: 'java',
       args: `-jar ${BASE_PATH}/backend/build/libs/spring-sse-webrtc-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:/home/sajacaros/workspace/conference/secret.yml`,
       watch: false,
-      autorestart: true,
-      max_restarts: 5,
+      autorestart: false,
       env: {
         NODE_ENV: 'production'
       }

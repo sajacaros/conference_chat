@@ -1,10 +1,12 @@
+const path = require('path');
+
 module.exports = {
   apps: [
     {
       name: 'backend',
-      cwd: './backend',
-      script: './gradlew',
-      args: 'bootRun --args="--spring.config.additional-location=file:../secret.yml"',
+      cwd: path.join(__dirname, 'backend'),
+      script: path.join(__dirname, 'backend', 'gradlew'),
+      args: 'bootRun --args="--spring.config.additional-location=file:../../secret.yml"',
       interpreter: '/bin/bash',
       watch: false,
       autorestart: true,
@@ -15,7 +17,7 @@ module.exports = {
     },
     {
       name: 'frontend',
-      cwd: './frontend',
+      cwd: path.join(__dirname, 'frontend'),
       script: 'npm',
       args: 'run preview',
       watch: false,

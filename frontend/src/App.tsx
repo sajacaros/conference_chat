@@ -10,6 +10,7 @@ import RegisterPage from './pages/RegisterPage'
 import UserListPage from './pages/UserListPage'
 import CallPage from './pages/CallPage'
 import ChatHistoryPage from './pages/ChatHistoryPage'
+import SimulatorPage from './pages/SimulatorPage'
 import { SseLogPanel, DebugLogEntry } from './components/debug/SseLogPanel'
 
 function RedirectToLogin() {
@@ -372,6 +373,7 @@ function App() {
                             onAcceptCall={acceptCallWrapped}
                             onRejectCall={handleRejectCall}
                             onHistory={() => navigate('/history')}
+                            onSimulator={() => navigate('/simulator')}
                         />
                     ) : <RedirectToLogin />
                 } />
@@ -383,6 +385,17 @@ function App() {
                             token={user.token}
                             onBack={() => navigate('/')}
                             onLogout={handleLogout}
+                        />
+                    ) : <RedirectToLogin />
+                } />
+
+                <Route path="/simulator" element={
+                    user ? (
+                        <SimulatorPage
+                            email={user.email}
+                            token={user.token}
+                            onLogout={handleLogout}
+                            onBack={() => navigate('/')}
                         />
                     ) : <RedirectToLogin />
                 } />

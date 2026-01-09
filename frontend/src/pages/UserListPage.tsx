@@ -19,6 +19,7 @@ interface UserListPageProps {
     onAcceptCall: () => void
     onRejectCall: () => void
     onHistory?: () => void
+    onSimulator?: () => void
 }
 
 export default function UserListPage({
@@ -29,7 +30,8 @@ export default function UserListPage({
     incomingCall,
     onAcceptCall,
     onRejectCall,
-    onHistory
+    onHistory,
+    onSimulator
 }: UserListPageProps) {
     const [filter, setFilter] = useState('')
 
@@ -58,6 +60,11 @@ export default function UserListPage({
                     {onHistory && (
                         <Button variant="outline" onClick={onHistory}>
                             History
+                        </Button>
+                    )}
+                    {onSimulator && (
+                        <Button variant="outline" onClick={onSimulator}>
+                            Simulator
                         </Button>
                     )}
                 </div>

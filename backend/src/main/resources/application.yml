@@ -2,7 +2,9 @@ server:
   port: 9088
 spring:
   config:
-    import: "optional:classpath:secret.yml"
+    import:
+      - "optional:file:../secret.yml"
+      - "optional:classpath:secret.yml"
   datasource:
     driver-class-name: org.postgresql.Driver
   flyway:

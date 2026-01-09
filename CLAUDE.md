@@ -13,11 +13,26 @@ A **Spring Boot + React WebRTC/SSE conference chat application** - a full-stack 
 ```bash
 cd backend
 
-# Development mode (requires secret.yml in project root)
-./gradlew bootRun --args="--spring.config.additional-location=file:../secret.yml"
+# Development mode (requires secret.yml in src/main/resources/)
+./gradlew bootRun
 
 # Background mode (Linux)
-nohup ./gradlew bootRun --args="--spring.config.additional-location=file:../secret.yml" > /dev/null 2>&1 &
+nohup ./gradlew bootRun > /dev/null 2>&1 &
+```
+
+### PM2 (Both services)
+
+```bash
+# Start all
+pm2 start ecosystem.config.js
+
+# Start individually
+pm2 start ecosystem.config.js --only backend
+pm2 start ecosystem.config.js --only frontend
+
+# Logs / Status
+pm2 logs
+pm2 status
 ```
 
 ### Frontend (Vite - port 9087)
@@ -114,7 +129,9 @@ PostgreSQL with Flyway migrations. Schema: `conference_chat`
 
 ### Required: secret.yml (git-ignored)
 
-Create `secret.yml` in project root:
+Create in one of these locations:
+- **Local dev**: `backend/src/main/resources/secret.yml`
+- **Server**: `secret.yml` (project root, loaded via `file:../secret.yml`)
 
 ```yaml
 spring:

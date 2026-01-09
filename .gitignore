@@ -34,5 +34,7 @@ frontend/package-lock.json
 Thumbs.db
 
 # Secrets
+secret.yml
+backend/src/main/resources/secret.yml
 src/main/resources/secret.yml
 application-secret.yml

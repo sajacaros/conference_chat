@@ -1,11 +1,11 @@
-const path = require('path');
+const BASE_PATH = '/home/sajacaros/workspace/conference/conference_chat';
 
 module.exports = {
   apps: [
     {
       name: 'backend',
-      cwd: path.join(__dirname, 'backend'),
-      script: path.join(__dirname, 'backend', 'gradlew'),
+      cwd: `${BASE_PATH}/backend`,
+      script: `${BASE_PATH}/backend/gradlew`,
       args: 'bootRun --args="--spring.config.additional-location=file:../../secret.yml"',
       interpreter: '/bin/bash',
       watch: false,
@@ -17,7 +17,7 @@ module.exports = {
     },
     {
       name: 'frontend',
-      cwd: path.join(__dirname, 'frontend'),
+      cwd: `${BASE_PATH}/frontend`,
       script: 'npm',
       args: 'run preview',
       watch: false,

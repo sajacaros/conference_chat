@@ -14,4 +14,10 @@ export default defineConfig(({ command }) => ({
             '@': path.resolve(__dirname, './src'),
         },
     },
+    server: {
+        port: 9087,
+    },
+    preview: {
+        port: 9087,
+    },
 }))

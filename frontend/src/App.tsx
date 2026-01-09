@@ -158,6 +158,9 @@ function App() {
 
     const handleLocalStream = useCallback((s: MediaStream) => setLocalStream(s), [])
     const handleRemoteStream = useCallback((s: MediaStream) => setRemoteStream(s), [])
+    const handleWebRTCDebug = useCallback((type: string, msg: string) => {
+        addDebugLog(`DEBUG:${type}`, msg)
+    }, [addDebugLog])
 
     // -- WebRTC --
     const {
@@ -171,7 +174,8 @@ function App() {
         sendSignal,
         onHangup: handleHangup,
         onLocalStream: handleLocalStream,
-        onRemoteStream: handleRemoteStream
+        onRemoteStream: handleRemoteStream,
+        onDebug: handleWebRTCDebug
     })
 
     // Link signal handler - use ref to avoid infinite loop

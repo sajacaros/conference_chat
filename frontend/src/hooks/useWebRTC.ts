@@ -32,40 +32,43 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
 
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                const c = event.candidate
+                onDebug?.('ICE OUT', `${c.type || 'unknown'} | ${c.protocol || ''} | ${c.address || ''}`)
                 sendSignal(targetId, 'CANDIDATE', JSON.stringify(event.candidate))
+            } else {
+                onDebug?.('ICE OUT', 'gathering complete')
             }
         }
 
         pc.ontrack = (event) => {
-            console.log('[WebRTC] ontrack fired:', {
-                kind: event.track.kind,
-                trackId: event.track.id,
-                readyState: event.track.readyState,
-                enabled: event.track.enabled,
-                hasStreams: event.streams?.length > 0
-            })
-            onDebug?.('TRACK', `Kind: ${event.track.kind}`)
+            const track = event.track
+            onDebug?.('TRACK', `${track.kind} | ${track.readyState} | enabled:${track.enabled}`)
+
+            // Listen for track state changes
+            track.onmute = () => onDebug?.('TRACK', `${track.kind} muted`)
+            track.onunmute = () => onDebug?.('TRACK', `${track.kind} unmuted`)
+            track.onended = () => onDebug?.('TRACK', `${track.kind} ended`)
 
             let stream: MediaStream
             if (event.streams && event.streams[0]) {
-                console.log('[WebRTC] Using stream from event:', event.streams[0].id)
                 stream = event.streams[0]
             } else {
-                console.log('[WebRTC] Creating/reusing MediaStream for track')
-                // No stream provided, create or reuse one
                 if (!remoteStreamRef.current) {
                     remoteStreamRef.current = new MediaStream()
-                    console.log('[WebRTC] Created new MediaStream:', remoteStreamRef.current.id)
                 }
-                remoteStreamRef.current.addTrack(event.track)
+                remoteStreamRef.current.addTrack(track)
                 stream = remoteStreamRef.current
             }
 
-            console.log('[WebRTC] Setting remote stream:', {
-                streamId: stream.id,
-                audioTracks: stream.getAudioTracks().length,
-                videoTracks: stream.getVideoTracks().length
-            })
+            const vTracks = stream.getVideoTracks()
+            const aTracks = stream.getAudioTracks()
+            onDebug?.('REMOTE', `video:${vTracks.length} audio:${aTracks.length}`)
+
+            // Log video track details if present
+            if (vTracks.length > 0) {
+                const vt = vTracks[0]
+                onDebug?.('VIDEO', `${vt.readyState} | enabled:${vt.enabled} | muted:${vt.muted}`)
+            }
 
             remoteStreamRef.current = stream
             onRemoteStream?.(stream)
@@ -310,42 +313,38 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
     }, [isScreenSharing, onLocalStream])
 
     const handleWebRTCSignal = useCallback(async (sender: string, type: string, data: string) => {
-        console.log('[WebRTC] handleWebRTCSignal:', { sender, type })
-
         if (type === 'REJECT' || type === 'HANGUP' || type === 'BUSY') {
             hangup()
             return
         }
 
         if (type === 'OFFER') {
-            // handled mainly by caller to accept
             return
         }
 
         const pc = peerConnectionRef.current
         if (!pc) {
-            console.error('[WebRTC] No peer connection available for signal:', type)
+            onDebug?.('ERROR', `No PC for signal: ${type}`)
             return
         }
 
         if (type === 'ANSWER') {
-            console.log('[WebRTC] Processing ANSWER')
+            onDebug?.('SIGNAL', 'ANSWER received')
             const desc = new RTCSessionDescription(JSON.parse(data))
             await pc.setRemoteDescription(desc)
-            console.log('[WebRTC] Remote description set, processing pending candidates')
             await processPendingCandidates()
         } else if (type === 'CANDIDATE') {
             const candidate = JSON.parse(data)
-            console.log('[WebRTC] Processing CANDIDATE:', { hasRemoteDesc: !!pc.remoteDescription })
+            const c = new RTCIceCandidate(candidate)
+            onDebug?.('ICE IN', `${c.type || 'unknown'} | ${c.protocol || ''} | ${c.address || ''}`)
             if (pc.remoteDescription && pc.remoteDescription.type) {
-                await pc.addIceCandidate(new RTCIceCandidate(candidate))
-                console.log('[WebRTC] ICE candidate added')
+                await pc.addIceCandidate(c)
             } else {
                 pendingCandidates.current.push(candidate)
-                console.log('[WebRTC] ICE candidate queued, pending count:', pendingCandidates.current.length)
+                onDebug?.('ICE IN', `queued (${pendingCandidates.current.length})`)
             }
         }
-    }, [hangup, processPendingCandidates])
+    }, [hangup, processPendingCandidates, onDebug])
 
     return {
         startCall,

@@ -8,12 +8,13 @@ export interface DebugLogEntry {
     message: string
 }
 
-type FilterCategory = 'CONNECT' | 'USER_LIST' | 'SIGNAL'
+type FilterCategory = 'CONNECT' | 'USER_LIST' | 'SIGNAL' | 'DEBUG'
 
 const FILTER_CONFIG: { key: FilterCategory; label: string; match: (type: string) => boolean; color: string; bgColor: string }[] = [
     { key: 'CONNECT', label: 'connect', match: (t) => t.includes('connect'), color: 'text-green-400', bgColor: 'bg-green-500/20 border-green-500/50' },
     { key: 'USER_LIST', label: 'user_list', match: (t) => t.includes('user_list'), color: 'text-blue-400', bgColor: 'bg-blue-500/20 border-blue-500/50' },
     { key: 'SIGNAL', label: 'signal', match: (t) => t === 'SSE IN', color: 'text-yellow-400', bgColor: 'bg-yellow-500/20 border-yellow-500/50' },
+    { key: 'DEBUG', label: 'debug', match: (t) => t.startsWith('DEBUG'), color: 'text-purple-400', bgColor: 'bg-purple-500/20 border-purple-500/50' },
 ]
 
 interface SseLogPanelProps {
@@ -78,6 +79,7 @@ export function SseLogPanel({ logs, isOpen, onToggle, onClear, className }: SseL
         if (type.includes('connect')) return 'text-green-400'
         if (type.includes('user_list')) return 'text-blue-400'
         if (type === 'SSE IN') return 'text-yellow-400'
+        if (type.startsWith('DEBUG')) return 'text-purple-400'
         return 'text-gray-400'
     }
 

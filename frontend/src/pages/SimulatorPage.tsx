@@ -3,6 +3,7 @@ import { Header } from '@/components/ui/Header'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
 import {
     SimulatorConfig,
     SimulatorStatus,
@@ -25,6 +26,7 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
     const [historyList, setHistoryList] = useState<SimulatorHistory[]>([])
     const [selectedHistory, setSelectedHistory] = useState<SimulatorHistory | null>(null)
     const [loading, setLoading] = useState(false)
+    const [showCreateModal, setShowCreateModal] = useState(false)
 
     // Config state with defaults
     const [userCount, setUserCount] = useState(10)
@@ -38,18 +40,42 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
 
     // Load status and history on mount
     useEffect(() => {
-        getSimulatorStatus(token).then(setStatus).catch(console.error)
-        getSimulatorHistoryList(token).then(setHistoryList).catch(console.error)
+        loadData()
     }, [token])
+
+    const loadData = async () => {
+        try {
+            const [statusData, historyData] = await Promise.all([
+                getSimulatorStatus(token),
+                getSimulatorHistoryList(token)
+            ])
+            setStatus(statusData)
+            setHistoryList(historyData)
+        } catch (e) {
+            console.error('Failed to load data:', e)
+        }
+    }
 
     // Poll status while running
     useEffect(() => {
         if (!status?.running) return
-        const interval = setInterval(() => {
-            getSimulatorStatus(token).then(setStatus).catch(console.error)
+        const interval = setInterval(async () => {
+            try {
+                const newStatus = await getSimulatorStatus(token)
+                setStatus(newStatus)
+                // Also refresh history to update running item stats
+                if (selectedHistory?.running) {
+                    const newHistory = await getSimulatorHistoryList(token)
+                    setHistoryList(newHistory)
+                    const updated = newHistory.find(h => h.id === selectedHistory.id)
+                    if (updated) setSelectedHistory(updated)
+                }
+            } catch (e) {
+                console.error('Failed to poll status:', e)
+            }
         }, 2000)
         return () => clearInterval(interval)
-    }, [status?.running, token])
+    }, [status?.running, selectedHistory?.id, selectedHistory?.running, token])
 
     const handleStart = async () => {
         if (userCount < 2) {
@@ -71,9 +97,12 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
         setLoading(true)
         try {
             await startSimulation(token, config)
-            const newStatus = await getSimulatorStatus(token)
-            setStatus(newStatus)
-            setSelectedHistory(null) // Clear selection when starting new
+            setShowCreateModal(false)
+            await loadData()
+            // Select the newly created (running) simulation
+            const newHistory = await getSimulatorHistoryList(token)
+            const running = newHistory.find(h => h.running)
+            if (running) setSelectedHistory(running)
         } catch (e: unknown) {
             const message = e instanceof Error ? e.message : 'Unknown error'
             alert('Failed to start: ' + message)
@@ -85,11 +114,13 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
         setLoading(true)
         try {
             await stopSimulation(token)
-            const newStatus = await getSimulatorStatus(token)
-            setStatus(newStatus)
-            // Reload history list
-            const newHistory = await getSimulatorHistoryList(token)
-            setHistoryList(newHistory)
+            await loadData()
+            // Refresh selected history
+            if (selectedHistory) {
+                const newHistory = await getSimulatorHistoryList(token)
+                const updated = newHistory.find(h => h.id === selectedHistory.id)
+                if (updated) setSelectedHistory(updated)
+            }
         } catch (e: unknown) {
             const message = e instanceof Error ? e.message : 'Unknown error'
             alert('Failed to stop: ' + message)
@@ -101,15 +132,23 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
         setSelectedHistory(history)
     }
 
-    const handleBackToNew = () => {
-        setSelectedHistory(null)
+    const resetForm = () => {
+        setUserCount(10)
+        setCallsPerMinute(10)
+        setChatMessagesPerCall(3)
+        setMinDuration(5)
+        setMaxDuration(30)
+        setConnectedPercent(60)
+        setRejectedPercent(20)
+        setCancelledPercent(15)
+    }
+
+    const openCreateModal = () => {
+        resetForm()
+        setShowCreateModal(true)
     }
 
     const busyPercent = Math.max(0, 100 - connectedPercent - rejectedPercent - cancelledPercent)
-
-    // Determine what to display
-    const isViewingHistory = selectedHistory !== null && !selectedHistory.running
-    const displayData = isViewingHistory ? selectedHistory : status
 
     return (
         <div className="flex flex-col h-screen bg-gray-950">
@@ -121,34 +160,29 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
                     {/* Back button */}
                     <Button variant="outline" onClick={onBack}>Back to Contacts</Button>
 
-                    {/* History Selection Card */}
+                    {/* History List Card */}
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-white">Simulation History</CardTitle>
+                            <div className="flex justify-between items-center">
+                                <CardTitle className="text-white">Simulation History</CardTitle>
+                                <Button
+                                    size="sm"
+                                    onClick={openCreateModal}
+                                    disabled={status?.running}
+                                    title={status?.running ? 'Stop current simulation first' : 'Create new simulation'}
+                                >
+                                    + New
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             {historyList.length === 0 ? (
-                                <div className="text-gray-500 text-sm">No simulation history yet</div>
+                                <div className="text-gray-500 text-sm text-center py-8">
+                                    No simulation history yet.<br />
+                                    Click "+ New" to create your first simulation.
+                                </div>
                             ) : (
-                                <div className="space-y-2 max-h-48 overflow-y-auto">
-                                    {/* New Simulation option */}
-                                    <div
-                                        onClick={handleBackToNew}
-                                        className={`p-3 rounded cursor-pointer transition-colors ${
-                                            !isViewingHistory
-                                                ? 'bg-blue-900 border border-blue-600'
-                                                : 'bg-gray-800 hover:bg-gray-700'
-                                        }`}
-                                    >
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-white font-medium">+ New Simulation</span>
-                                            {status?.running && (
-                                                <span className="text-xs bg-green-600 px-2 py-1 rounded">Running</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* History items */}
+                                <div className="space-y-2 max-h-64 overflow-y-auto">
                                     {historyList.map(history => (
                                         <div
                                             key={history.id}
@@ -161,19 +195,26 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
                                         >
                                             <div className="flex justify-between items-center">
                                                 <div>
-                                                    <span className="text-white text-sm">
-                                                        #{history.id} - {history.userCount} users, {history.callsPerMinute}/min
+                                                    <span className="text-white text-sm font-medium">
+                                                        #{history.id}
                                                     </span>
-                                                    <div className="text-xs text-gray-400">
+                                                    <span className="text-gray-400 text-sm ml-2">
+                                                        {history.userCount} users, {history.callsPerMinute}/min
+                                                    </span>
+                                                    <div className="text-xs text-gray-500">
                                                         {formatDateTime(history.startedAt)}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-gray-400">
-                                                        {history.totalCallsGenerated} calls
-                                                    </span>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="text-right">
+                                                        <div className="text-sm text-white">{history.totalCallsGenerated} calls</div>
+                                                        <div className="text-xs text-gray-400">{history.totalMessagesGenerated} msgs</div>
+                                                    </div>
                                                     {history.running ? (
-                                                        <span className="text-xs bg-green-600 px-2 py-1 rounded">Running</span>
+                                                        <span className="text-xs bg-green-600 px-2 py-1 rounded flex items-center gap-1">
+                                                            <span className="inline-block w-2 h-2 bg-white rounded-full animate-pulse" />
+                                                            Running
+                                                        </span>
                                                     ) : (
                                                         <span className="text-xs bg-gray-600 px-2 py-1 rounded">Stopped</span>
                                                     )}
@@ -186,213 +227,210 @@ export default function SimulatorPage({ email, token, onLogout, onBack }: Simula
                         </CardContent>
                     </Card>
 
-                    {/* Status Card */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-white flex items-center gap-2">
-                                {isViewingHistory ? `History #${selectedHistory.id}` : 'Current Status'}
-                                {displayData && 'running' in displayData && displayData.running && (
-                                    <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                                )}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-gray-300">
-                            {displayData ? (
+                    {/* Selected History Detail */}
+                    {selectedHistory && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-white flex items-center gap-2">
+                                    Simulation #{selectedHistory.id}
+                                    {selectedHistory.running && (
+                                        <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                                    )}
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {/* Stats */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     <div>
                                         <div className="text-sm text-gray-500">Status</div>
-                                        <div className={displayData.running ? 'text-green-400' : 'text-gray-400'}>
-                                            {displayData.running ? 'Running' : 'Stopped'}
+                                        <div className={selectedHistory.running ? 'text-green-400 font-medium' : 'text-gray-400'}>
+                                            {selectedHistory.running ? 'Running' : 'Stopped'}
                                         </div>
                                     </div>
                                     <div>
                                         <div className="text-sm text-gray-500">Total Calls</div>
-                                        <div className="text-xl font-bold">{displayData.totalCallsGenerated}</div>
+                                        <div className="text-xl font-bold text-white">{selectedHistory.totalCallsGenerated}</div>
                                     </div>
                                     <div>
                                         <div className="text-sm text-gray-500">Total Messages</div>
-                                        <div className="text-xl font-bold">{displayData.totalMessagesGenerated}</div>
+                                        <div className="text-xl font-bold text-white">{selectedHistory.totalMessagesGenerated}</div>
                                     </div>
                                     <div>
                                         <div className="text-sm text-gray-500">By Status</div>
                                         <div className="text-xs space-y-1">
-                                            {Object.entries(displayData.callsByStatus || {})
+                                            {Object.entries(selectedHistory.callsByStatus || {})
                                                 .filter(([, v]) => v > 0)
                                                 .map(([k, v]) => (
                                                     <div key={k} className="flex justify-between">
                                                         <span className={getStatusColor(k)}>{k}</span>
-                                                        <span>{v}</span>
+                                                        <span className="text-white">{v}</span>
                                                     </div>
                                                 ))}
                                         </div>
                                     </div>
                                 </div>
-                            ) : (
-                                <div>Loading...</div>
-                            )}
 
-                            {/* Show history config when viewing history */}
-                            {isViewingHistory && (
-                                <div className="mt-4 pt-4 border-t border-gray-700">
-                                    <div className="text-sm text-gray-500 mb-2">Configuration Used</div>
+                                {/* Configuration */}
+                                <div className="pt-4 border-t border-gray-700">
+                                    <div className="text-sm text-gray-500 mb-2">Configuration</div>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                                        <div><span className="text-gray-500">Users:</span> {selectedHistory.userCount}</div>
-                                        <div><span className="text-gray-500">Calls/min:</span> {selectedHistory.callsPerMinute}</div>
-                                        <div><span className="text-gray-500">Messages:</span> {selectedHistory.chatMessagesPerCall}</div>
-                                        <div><span className="text-gray-500">Duration:</span> {selectedHistory.minCallDurationSeconds}-{selectedHistory.maxCallDurationSeconds}s</div>
-                                        <div><span className="text-green-400">Connected:</span> {selectedHistory.connectedPercent}%</div>
-                                        <div><span className="text-red-400">Rejected:</span> {selectedHistory.rejectedPercent}%</div>
-                                        <div><span className="text-yellow-400">Cancelled:</span> {selectedHistory.cancelledPercent}%</div>
-                                        <div><span className="text-orange-400">Busy:</span> {100 - selectedHistory.connectedPercent - selectedHistory.rejectedPercent - selectedHistory.cancelledPercent}%</div>
+                                        <div><span className="text-gray-500">Users:</span> <span className="text-white">{selectedHistory.userCount}</span></div>
+                                        <div><span className="text-gray-500">Calls/min:</span> <span className="text-white">{selectedHistory.callsPerMinute}</span></div>
+                                        <div><span className="text-gray-500">Messages:</span> <span className="text-white">{selectedHistory.chatMessagesPerCall}</span></div>
+                                        <div><span className="text-gray-500">Duration:</span> <span className="text-white">{selectedHistory.minCallDurationSeconds}-{selectedHistory.maxCallDurationSeconds}s</span></div>
                                     </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mt-2">
+                                        <div><span className="text-green-400">Connected:</span> <span className="text-white">{selectedHistory.connectedPercent}%</span></div>
+                                        <div><span className="text-red-400">Rejected:</span> <span className="text-white">{selectedHistory.rejectedPercent}%</span></div>
+                                        <div><span className="text-yellow-400">Cancelled:</span> <span className="text-white">{selectedHistory.cancelledPercent}%</span></div>
+                                        <div><span className="text-orange-400">Busy:</span> <span className="text-white">{100 - selectedHistory.connectedPercent - selectedHistory.rejectedPercent - selectedHistory.cancelledPercent}%</span></div>
+                                    </div>
+                                </div>
+
+                                {/* Time info */}
+                                <div className="pt-4 border-t border-gray-700 text-xs text-gray-500">
+                                    <div>Started: {formatDateTime(selectedHistory.startedAt)}</div>
                                     {selectedHistory.stoppedAt && (
-                                        <div className="mt-2 text-xs text-gray-500">
-                                            Stopped at: {formatDateTime(selectedHistory.stoppedAt)}
-                                        </div>
+                                        <div>Stopped: {formatDateTime(selectedHistory.stoppedAt)}</div>
                                     )}
                                 </div>
-                            )}
-                        </CardContent>
-                    </Card>
 
-                    {/* Configuration - only show when not viewing history */}
-                    {!isViewingHistory && (
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="text-white">Configuration</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {/* Basic Settings */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <label className="block text-sm text-gray-400 mb-1">Virtual Users (2-1000)</label>
-                                        <Input
-                                            type="number"
-                                            min={2}
-                                            max={1000}
-                                            value={userCount}
-                                            onChange={e => setUserCount(Number(e.target.value))}
-                                            disabled={status?.running}
-                                        />
-                                        <div className="text-xs text-gray-500 mt-1">vuser1 ~ vuser{userCount}</div>
+                                {/* Stop button for running simulation */}
+                                {selectedHistory.running && (
+                                    <div className="pt-4 border-t border-gray-700 flex justify-center">
+                                        <Button variant="danger" onClick={handleStop} disabled={loading}>
+                                            {loading ? 'Stopping...' : 'Stop Simulation'}
+                                        </Button>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm text-gray-400 mb-1">Calls/Minute</label>
-                                        <Input
-                                            type="number"
-                                            min={1}
-                                            max={60}
-                                            value={callsPerMinute}
-                                            onChange={e => setCallsPerMinute(Number(e.target.value))}
-                                            disabled={status?.running}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm text-gray-400 mb-1">Messages/Call</label>
-                                        <Input
-                                            type="number"
-                                            min={0}
-                                            max={20}
-                                            value={chatMessagesPerCall}
-                                            onChange={e => setChatMessagesPerCall(Number(e.target.value))}
-                                            disabled={status?.running}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm text-gray-400 mb-1">Duration (s)</label>
-                                        <div className="flex gap-1 items-center">
-                                            <Input
-                                                type="number"
-                                                min={1}
-                                                max={300}
-                                                value={minDuration}
-                                                onChange={e => setMinDuration(Number(e.target.value))}
-                                                disabled={status?.running}
-                                                className="w-16"
-                                            />
-                                            <span className="text-gray-500">~</span>
-                                            <Input
-                                                type="number"
-                                                min={1}
-                                                max={300}
-                                                value={maxDuration}
-                                                onChange={e => setMaxDuration(Number(e.target.value))}
-                                                disabled={status?.running}
-                                                className="w-16"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Outcome Probabilities */}
-                                <div className="border-t border-gray-700 pt-4">
-                                    <div className="text-sm text-gray-400 mb-2">Outcome Probabilities (must total ≤100%)</div>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div>
-                                            <label className="block text-sm text-green-400 mb-1">Connected %</label>
-                                            <Input
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={connectedPercent}
-                                                onChange={e => setConnectedPercent(Number(e.target.value))}
-                                                disabled={status?.running}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm text-red-400 mb-1">Rejected %</label>
-                                            <Input
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={rejectedPercent}
-                                                onChange={e => setRejectedPercent(Number(e.target.value))}
-                                                disabled={status?.running}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm text-yellow-400 mb-1">Cancelled %</label>
-                                            <Input
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={cancelledPercent}
-                                                onChange={e => setCancelledPercent(Number(e.target.value))}
-                                                disabled={status?.running}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm text-orange-400 mb-1">Busy % (auto)</label>
-                                            <Input
-                                                type="number"
-                                                value={busyPercent}
-                                                disabled
-                                                className="bg-gray-700"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
+                                )}
                             </CardContent>
                         </Card>
                     )}
 
-                    {/* Control Buttons - only show when not viewing history */}
-                    {!isViewingHistory && (
-                        <div className="flex justify-center gap-4">
-                            {status?.running ? (
-                                <Button variant="danger" onClick={handleStop} disabled={loading}>
-                                    {loading ? 'Stopping...' : 'Stop Simulation'}
-                                </Button>
-                            ) : (
-                                <Button onClick={handleStart} disabled={loading || userCount < 2}>
-                                    {loading ? 'Starting...' : 'Start Simulation'}
-                                </Button>
-                            )}
-                        </div>
-                    )}
-
                 </div>
             </div>
+
+            {/* Create Simulation Modal */}
+            <Modal
+                isOpen={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                title="New Simulation"
+            >
+                <div className="space-y-4">
+                    {/* Basic Settings */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Virtual Users (2-1000)</label>
+                            <Input
+                                type="number"
+                                min={2}
+                                max={1000}
+                                value={userCount}
+                                onChange={e => setUserCount(Number(e.target.value))}
+                            />
+                            <div className="text-xs text-gray-500 mt-1">vuser1 ~ vuser{userCount}</div>
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Calls/Minute</label>
+                            <Input
+                                type="number"
+                                min={1}
+                                max={60}
+                                value={callsPerMinute}
+                                onChange={e => setCallsPerMinute(Number(e.target.value))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Messages/Call</label>
+                            <Input
+                                type="number"
+                                min={0}
+                                max={20}
+                                value={chatMessagesPerCall}
+                                onChange={e => setChatMessagesPerCall(Number(e.target.value))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-1">Duration (s)</label>
+                            <div className="flex gap-1 items-center">
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={300}
+                                    value={minDuration}
+                                    onChange={e => setMinDuration(Number(e.target.value))}
+                                    className="w-20"
+                                />
+                                <span className="text-gray-500">~</span>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={300}
+                                    value={maxDuration}
+                                    onChange={e => setMaxDuration(Number(e.target.value))}
+                                    className="w-20"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Outcome Probabilities */}
+                    <div className="border-t border-gray-700 pt-4">
+                        <div className="text-sm text-gray-400 mb-2">Outcome Probabilities (≤100%)</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm text-green-400 mb-1">Connected %</label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={connectedPercent}
+                                    onChange={e => setConnectedPercent(Number(e.target.value))}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-red-400 mb-1">Rejected %</label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={rejectedPercent}
+                                    onChange={e => setRejectedPercent(Number(e.target.value))}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-yellow-400 mb-1">Cancelled %</label>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={cancelledPercent}
+                                    onChange={e => setCancelledPercent(Number(e.target.value))}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-orange-400 mb-1">Busy % (auto)</label>
+                                <Input
+                                    type="number"
+                                    value={busyPercent}
+                                    disabled
+                                    className="bg-gray-700"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+                        <Button variant="outline" onClick={() => setShowCreateModal(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleStart} disabled={loading || userCount < 2}>
+                            {loading ? 'Starting...' : 'Start Simulation'}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     )
 }

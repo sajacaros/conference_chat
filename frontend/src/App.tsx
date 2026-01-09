@@ -87,7 +87,23 @@ function App() {
                 // sendSignal(sender, 'BUSY', {}) // Need access to sendSignal here.
             } else {
                 console.log('[App] Setting incoming call:', { sender, data })
+                // OFFER 받으면 기존 candidate 캐시 초기화
+                sessionStorage.removeItem('call_candidates')
                 setIncomingCall({ sender, data })
+            }
+            return
+        }
+
+        // /call 페이지가 아닐 때 CANDIDATE를 sessionStorage에 버퍼링
+        // (hard navigation 후에도 유지되도록)
+        if (type === 'CANDIDATE' && location.pathname !== '/call') {
+            const currentCall = incomingCallRef.current
+            if (currentCall && currentCall.sender === sender) {
+                const cached = sessionStorage.getItem('call_candidates')
+                const candidates = cached ? JSON.parse(cached) : []
+                candidates.push(data)
+                sessionStorage.setItem('call_candidates', JSON.stringify(candidates))
+                console.log('[App] Buffered CANDIDATE to sessionStorage, count:', candidates.length)
             }
             return
         }
@@ -140,6 +156,7 @@ function App() {
         sessionStorage.removeItem('call_target')
         sessionStorage.removeItem('call_initiator')
         sessionStorage.removeItem('call_offer')
+        sessionStorage.removeItem('call_candidates')
 
         // Clear call state BEFORE setting isCallSetup to false
         // to prevent useEffect from re-triggering a call

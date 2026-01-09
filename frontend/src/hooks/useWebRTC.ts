@@ -220,7 +220,17 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             cameraStreamRef.current = null
         }
         remoteStreamRef.current = null
-        pendingCandidates.current = []
+
+        // sessionStorage에서 버퍼링된 candidate 로드
+        const cachedCandidates = sessionStorage.getItem('call_candidates')
+        if (cachedCandidates) {
+            const candidates = JSON.parse(cachedCandidates)
+            pendingCandidates.current = candidates.map((c: string) => JSON.parse(c))
+            sessionStorage.removeItem('call_candidates')
+            onDebug?.('ICE', `Loaded ${pendingCandidates.current.length} buffered candidates from sessionStorage`)
+        } else {
+            pendingCandidates.current = []
+        }
 
         // Create new peer connection
         const pc = new RTCPeerConnection({
@@ -246,7 +256,7 @@ export function useWebRTC({ onLocalStream, onRemoteStream, sendSignal, onDebug, 
             peerConnectionRef.current = null
             throw e
         }
-    }, [setupPeerConnectionHandlers, getLocalStream, addTracksToPC, processPendingCandidates, sendSignal])
+    }, [setupPeerConnectionHandlers, getLocalStream, addTracksToPC, processPendingCandidates, sendSignal, onDebug])
 
     const hangup = useCallback((targetId?: string) => {
         if (targetId) sendSignal(targetId, 'HANGUP', '{}')

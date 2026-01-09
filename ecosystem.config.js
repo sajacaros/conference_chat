@@ -4,7 +4,7 @@ module.exports = {
       name: 'backend',
       cwd: './backend',
       script: './gradlew',
-      args: 'bootRun',
+      args: 'bootRun --args="--spring.config.additional-location=file:../secret.yml"',
       interpreter: '/bin/bash',
       watch: false,
       autorestart: true,
@@ -17,11 +17,11 @@ module.exports = {
       name: 'frontend',
       cwd: './frontend',
       script: 'npm',
-      args: 'run dev',
+      args: 'run preview',
       watch: false,
       autorestart: true,
       env: {
-        NODE_ENV: 'development'
+        NODE_ENV: 'production'
       }
     }
   ]

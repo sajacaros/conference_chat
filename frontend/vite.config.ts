@@ -19,5 +19,6 @@ export default defineConfig(({ command }) => ({
     },
     preview: {
         port: 9087,
+        allowedHosts: ['rnd.dacon.kr'],
     },
 }))
